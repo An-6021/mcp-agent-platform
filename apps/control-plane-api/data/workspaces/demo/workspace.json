@@ -1,0 +1,9 @@
+{
+  "id": "demo",
+  "displayName": "演示工作区",
+  "description": "",
+  "status": "active",
+  "cacheTtlSeconds": 300,
+  "createdAt": "2026-03-23T10:18:36.141Z",
+  "updatedAt": "2026-03-24T08:07:43.039Z"
+}

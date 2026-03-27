@@ -1,0 +1,38 @@
+{
+  "name": "mcp-agent-platform",
+  "version": "0.1.2",
+  "description": "A local stdio MCP agent that loads personalized remote config and connects to upstream MCP services.",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "dist/cli.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "mcp-agent-platform": "dist/cli.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "agent",
+    "codex",
+    "claude-code",
+    "opencode"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "prepack": "pnpm run build",
+    "lint": "echo \"(no lint configured)\""
+  }
+}
