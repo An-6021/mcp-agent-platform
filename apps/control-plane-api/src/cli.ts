@@ -1,8 +1,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createControlPlaneServer } from "./server";
+import { createConsoleFileRepository } from "./repository/consoleFileRepository";
 import { createFileRepository } from "./repository/fileRepository";
 import { registerAdminRoutes } from "./adminRoutes";
+import { registerConsoleRoutes } from "./consoleRoutes";
+import { HostedProcessManager } from "./hostedProcessManager";
 
 function getArgValue(flag: string): string | undefined {
   const index = process.argv.indexOf(flag);
@@ -26,16 +29,17 @@ async function main() {
   const legacyTokens = parseWorkspaceTokens(process.env.MCP_CONTROL_PLANE_TOKENS);
 
   const repo = createFileRepository({ dataDir, legacyTokens });
+  const consoleRepo = createConsoleFileRepository({ dataDir });
 
   const server = createControlPlaneServer({ repo });
 
-  // Register CORS for dev
   await server.register(import("@fastify/cors"), { origin: true });
 
-  // Register admin routes
-  registerAdminRoutes(server, { repo });
+  const processManager = new HostedProcessManager(consoleRepo);
 
-  // Serve static files in production
+  registerAdminRoutes(server, { repo });
+  registerConsoleRoutes(server, { repo: consoleRepo, processManager });
+
   const webDistDir = path.resolve(currentDir, "../../control-plane-web/dist");
   try {
     const { default: fastifyStatic } = await import("@fastify/static");
@@ -45,7 +49,6 @@ async function main() {
       wildcard: false,
       decorateReply: false,
     });
-    // SPA fallback: serve index.html for non-API routes
     server.setNotFoundHandler(async (request, reply) => {
       if (
         request.url.startsWith("/v1/") ||
@@ -58,10 +61,34 @@ async function main() {
       return reply.sendFile("index.html");
     });
   } catch {
-    // @fastify/static not available or web dist not built — skip
+    // @fastify/static not available or web dist not built - skip
   }
 
   await server.listen({ port, host });
+
+  // 启动后自动刷新所有已启用 source 的能力（后台执行，不阻塞启动）
+  setImmediate(async () => {
+    try {
+      server.log.info("Auto-refreshing all sources on startup...");
+      const res = await server.inject({ method: "POST", url: "/admin/sources/refresh-all" });
+      const body = JSON.parse(res.body) as { data: { total: number; succeeded: number; failed: number } };
+      server.log.info(
+        `Auto-refresh complete: ${body.data.succeeded}/${body.data.total} succeeded, ${body.data.failed} failed`,
+      );
+    } catch (error) {
+      server.log.error({ error }, "Auto-refresh failed");
+    }
+  });
+
+  // 优雅停止：关闭所有托管进程
+  const shutdown = async () => {
+    server.log.info("Shutting down hosted processes...");
+    await processManager.shutdownAll();
+    await server.close();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 main().catch((error) => {

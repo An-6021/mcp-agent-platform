@@ -22,6 +22,10 @@ type HttpUpstreamHandle = {
   close: () => Promise<void>;
 };
 
+const META_TOOL_NAME = "mcp_agent_platform.describe_services";
+const SERVICE_INDEX_URI = "mcp-agent-meta://services/index";
+const SERVICE_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/capabilities";
+
 let runtimeHandle: AgentRuntimeHandle | null = null;
 let upstreamClosers: Array<() => Promise<void>> = [];
 
@@ -80,7 +84,7 @@ describe("launchAgentRuntime", () => {
       expect(capabilities?.prompts).toBeTruthy();
 
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["a.echo", "a.sum", "b.echo"]);
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["a.echo", "a.sum", "b.echo", META_TOOL_NAME]);
 
       const echoA = await client.callTool({ name: "a.echo", arguments: { text: "hi" } });
       const echoAText = echoA.content.find((item) => item.type === "text");
@@ -98,12 +102,25 @@ describe("launchAgentRuntime", () => {
       expect(sumAText && "text" in sumAText ? sumAText.text : "").toBe("3");
 
       const resources = await client.listResources();
-      expect(resources.resources).toHaveLength(1);
-      expect(decodeResourceUri(resources.resources[0]!.uri)?.upstreamId).toBe("a");
+      expect(resources.resources.some((resource) => resource.uri === SERVICE_INDEX_URI)).toBe(true);
+      const upstreamResource = resources.resources.find((resource) => decodeResourceUri(resource.uri)?.upstreamId === "a");
+      expect(upstreamResource).toBeTruthy();
 
-      const read = await client.readResource({ uri: resources.resources[0]!.uri });
+      const read = await client.readResource({ uri: upstreamResource!.uri });
       expect(read.contents[0]?.text).toBe("resource content from a");
       expect(decodeResourceUri(read.contents[0]!.uri)?.upstreamId).toBe("a");
+
+      const serviceIndex = await client.readResource({ uri: SERVICE_INDEX_URI });
+      const serviceIndexPayload = parseReadResourceJson(serviceIndex);
+      expect(serviceIndexPayload.services.map((service: { id: string }) => service.id)).toEqual(["a", "b"]);
+
+      const serviceTemplates = await client.listResourceTemplates();
+      expect(serviceTemplates.resourceTemplates.map((item) => item.uriTemplate)).toContain(SERVICE_TEMPLATE_URI);
+
+      const serviceOverview = await client.callTool({ name: META_TOOL_NAME, arguments: { includeDetails: true } });
+      const overviewPayload = parseCallToolJson(serviceOverview);
+      expect(overviewPayload.services).toHaveLength(2);
+      expect(overviewPayload.services[0].tools[0].qualifiedName).toBeTypeOf("string");
 
       const prompts = await client.listPrompts();
       expect(prompts.prompts.map((prompt) => prompt.name)).toEqual(["a.hello"]);
@@ -116,7 +133,7 @@ describe("launchAgentRuntime", () => {
     }
   });
 
-  it("当所有 upstream 都只有 tools 时，不宣传 resources 和 prompts", async () => {
+  it("当所有 upstream 都只有 tools 时，仍提供 discovery resources", async () => {
     const toolsOnlyUpstream = await launchHttpUpstream(createToolsOnlyUpstream("solo"));
     upstreamClosers.push(toolsOnlyUpstream.close);
 
@@ -147,16 +164,82 @@ describe("launchAgentRuntime", () => {
     try {
       const capabilities = client.getServerCapabilities();
       expect(capabilities?.tools).toBeTruthy();
-      expect(capabilities?.resources).toBeUndefined();
+      expect(capabilities?.resources).toBeTruthy();
       expect(capabilities?.prompts).toBeUndefined();
 
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name)).toEqual(["solo.echo"]);
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual([META_TOOL_NAME, "solo.echo"].sort());
+
+      const resources = await client.listResources();
+      expect(resources.resources.some((resource) => resource.uri === SERVICE_INDEX_URI)).toBe(true);
+
+      const serviceDetail = await client.readResource({ uri: "mcp-agent-meta://services/solo/capabilities" });
+      const serviceDetailPayload = parseReadResourceJson(serviceDetail);
+      expect(serviceDetailPayload.service.tools.map((tool: { qualifiedName: string }) => tool.qualifiedName)).toEqual(["solo.echo"]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("支持单文件托管 upstream", async () => {
+    const config: WorkspaceConfig = {
+      schemaVersion: 1,
+      workspaceId: "hosted-file",
+      displayName: "Hosted File",
+      generatedAt: "2026-03-30T00:00:00.000Z",
+      cacheTtlSeconds: 300,
+      upstreams: [
+        {
+          id: "file",
+          label: "File",
+          kind: "hosted-single-file",
+          fileName: "echo-server.mjs",
+          runtime: "node",
+          source: createHostedSingleFileSource(),
+          args: [],
+          cwd: null,
+          env: {},
+          timeoutMs: 30_000,
+          autoStart: true,
+          enabled: true,
+        },
+      ],
+    };
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    runtimeHandle = await launchAgentRuntime(config, serverTransport);
+
+    const client = new Client({ name: "runtime-hosted-file-client", version: "0.0.0" });
+    await client.connect(clientTransport);
+
+    try {
+      const tools = await client.listTools();
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["file.echo", META_TOOL_NAME]);
+
+      const echo = await client.callTool({ name: "file.echo", arguments: { text: "hello" } });
+      const echoText = echo.content.find((item) => item.type === "text");
+      expect(echoText && "text" in echoText ? echoText.text : "").toBe("hosted-file:hello");
     } finally {
       await client.close();
     }
   });
 });
+
+function parseReadResourceJson(result: Awaited<ReturnType<Client["readResource"]>>) {
+  const text = result.contents.find((content) => "text" in content && typeof content.text === "string")?.text;
+  if (!text) {
+    throw new Error("resource result does not contain JSON text");
+  }
+  return JSON.parse(text) as Record<string, any>;
+}
+
+function parseCallToolJson(result: Awaited<ReturnType<Client["callTool"]>>) {
+  const text = result.content.find((content) => content.type === "text" && "text" in content)?.text;
+  if (!text) {
+    throw new Error("tool result does not contain JSON text");
+  }
+  return JSON.parse(text) as Record<string, any>;
+}
 
 function createFullFeaturedUpstream(serverId: string): Server {
   const server = new Server(
@@ -306,6 +389,46 @@ function createToolsOnlyUpstream(serverId: string): Server {
   });
 
   return server;
+}
+
+function createHostedSingleFileSource(): string {
+  return `
+import { Server } from "@modelcontextprotocol/sdk/server";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+
+const server = new Server(
+  { name: "hosted-file-upstream", version: "0.0.0" },
+  {
+    capabilities: {
+      tools: { listChanged: true },
+    },
+  },
+);
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "echo",
+      description: "Echo text from hosted file",
+      inputSchema: {
+        type: "object",
+        properties: { text: { type: "string" } },
+        required: ["text"],
+      },
+    },
+  ],
+}));
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const text = typeof request.params.arguments?.text === "string" ? request.params.arguments.text : "";
+  return {
+    content: [{ type: "text", text: \`hosted-file:\${text}\` }],
+  };
+});
+
+await server.connect(new StdioServerTransport());
+`;
 }
 
 async function launchHttpUpstream(server: Server): Promise<HttpUpstreamHandle> {

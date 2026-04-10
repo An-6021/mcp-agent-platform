@@ -3,24 +3,38 @@
 一个从 0 开始的新项目，目标是把旧版桌面式 MCP Hub 收敛成两层：
 
 - 本地 `stdio agent`：只向 AI 工具暴露一个 MCP 入口
-- 远程 `control plane`：只负责下发个性化配置，不承担全量 MCP 调用流量
+- 远程 `control plane`：负责 MCP 来源配置、工具暴露编排和部分托管能力
+
+## 当前方向
+
+当前项目更适合按“自用 MCP 聚合控制台”理解，而不是按企业后台理解。
+
+控制面的核心目标已经收敛为三件事：
+
+- 各个渠道的 MCP 来源聚合
+- 工具暴露层编排
+- 部分 MCP 来源托管运行
 
 ## 一阶段 MVP
 
 只做下面几件事：
 
 - 本地 agent 通过 `stdio` 对接 Codex / Claude Code / OpenCode
-- agent 启动时从远程接口拉取工作区配置
-- 配置支持两类上游：
+- agent 启动时从远程接口拉取聚合配置
+- 配置支持四类上游：
   - `direct-http`
   - `local-stdio`
+  - `hosted-npm`
+  - `hosted-single-file`
 - 远程接口失败时使用本地缓存兜底
+- 控制面围绕 `Sources / Tools / Hosted` 三层收敛
 
 ## 明确不做
 
 - 不做统一中心 HTTP 中转
 - 不做“同步到工具”写配置
 - 不做多租户复杂权限和计费
+- 不做以 workspace 快照、回滚、后台审批为中心的重后台体系
 
 ## 目录
 
@@ -31,16 +45,20 @@
 - `packages/agent`
   - 发布到 npm 的本地 CLI agent
 - `apps/control-plane-api`
-  - 远程配置下发服务
+  - 控制面 API 与自用控制台后端
 - `apps/control-plane-web`
-  - Web 控制面板原型
+  - 自用 MCP 聚合控制台前端
 
-## 补充文档
+## 文档
 
 - `docs/architecture.md`
-  - 项目整体架构与数据流
-- `docs/control-plane-panel-draft.md`
-  - 交给继任者的控制面板草案
+  - 当前整体架构与主链路
+- `docs/product.md`
+  - 控制台产品设计
+- `docs/data-api.md`
+  - 前后端数据模型与 API 设计稿
+- `docs/todo.md`
+  - 当前实现待办
 
 ## 快速开始
 
@@ -112,20 +130,28 @@ agent 最终会请求：
 
 - `https://api.example.com/v1/workspaces/demo/config`
 
-当前项目现在已经有：
+## 当前已有能力
 
 - 本地 npm agent
 - 远程控制面 API
-- Web 控制面板原型
-- 工作区草稿、发布、回滚、Token 轮换等基础流程
+- 自用控制台原型
+- 四类上游来源：
+  - `direct-http`
+  - `local-stdio`
+  - `hosted-npm`
+  - `hosted-single-file`
+- 托管型来源的基础接入能力
+- runtime 侧的聚合与统一暴露基础能力
 
-当前还没有：
+## 当前待补能力
 
-- 完整权限体系
-- 面向生产的后台安全与审计能力
-- 更完整的自动化测试覆盖
+- `Sources / Tools / Hosted` 三层控制面的完整收口
+- 更完善的自动化测试覆盖
+- hosted 来源的更稳定状态管理与日志体验
+- 最终工具暴露视图与冲突处理体验
 
 ## 首版验收
 
 - 正常路径：本地 agent 能拉到远程配置，并向下游工具列出聚合后的工具
+- 控制面路径：能维护来源、刷新能力、控制工具暴露、启动或停止托管来源
 - 边界路径：远程配置接口不可用时，agent 能从缓存恢复，或给出明确错误

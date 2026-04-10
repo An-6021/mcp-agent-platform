@@ -22,6 +22,15 @@ function getUpstreamPreview(upstream: UpstreamConfig): string {
     return upstream.command.join(" ");
   }
 
+  if (upstream.kind === "hosted-npm") {
+    const packageSpec = upstream.packageVersion ? `${upstream.packageName}@${upstream.packageVersion}` : upstream.packageName;
+    return [packageSpec, upstream.binName].filter(Boolean).join(" / ") || "未填写 npm 托管信息";
+  }
+
+  if (upstream.kind === "hosted-single-file") {
+    return [upstream.fileName, upstream.runtime].filter(Boolean).join(" / ") || "未填写单文件内容";
+  }
+
   return "未填写启动命令";
 }
 
@@ -30,18 +39,18 @@ function UpstreamSummaryRow({ upstream, index }: { upstream: UpstreamConfig; ind
   const preview = getUpstreamPreview(upstream);
 
   return (
-    <div className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <button type="button" onClick={() => setExpanded((current) => !current)} className="flex w-full items-start gap-4 px-4 py-3 text-left">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-slate-950">{upstream.label || upstream.id || `来源 ${index + 1}`}</p>
+            <p className="text-sm font-semibold text-slate-950">{upstream.label || upstream.id || `接入方式 ${index + 1}`}</p>
             <StatusBadge tone={upstream.enabled ? "success" : "neutral"}>{upstream.enabled ? "启用中" : "已禁用"}</StatusBadge>
             <StatusBadge tone="info">{formatUpstreamKindLabel(upstream.kind)}</StatusBadge>
           </div>
           <p className="mt-1 truncate text-xs text-slate-400">{preview}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <code className="rounded-full bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-500">{upstream.id || "未填写来源 ID"}</code>
-            <span>顺位 {index + 1}</span>
+            <code className="rounded-full bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-500">{upstream.id || "未生成内部 ID"}</code>
+            <span>已集成</span>
           </div>
         </div>
 
@@ -59,30 +68,65 @@ function UpstreamSummaryRow({ upstream, index }: { upstream: UpstreamConfig; ind
         <div className="border-t border-slate-100 px-4 pb-4 pt-3">
           <div className="space-y-3">
             {upstream.kind === "direct-http" && upstream.url ? (
-              <div className="rounded-[1rem] bg-slate-50 px-3 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">地址</p>
+              <div className="rounded-lg bg-slate-50 px-3 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">地址</p>
                 <code className="mt-2 block break-all text-xs leading-6 text-slate-900">{upstream.url}</code>
               </div>
             ) : null}
 
             {upstream.kind === "local-stdio" && upstream.command?.length ? (
               <div className="space-y-3">
-                <div className="rounded-[1rem] bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">启动命令</p>
+                <div className="rounded-lg bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">启动命令</p>
                   <code className="mt-2 block break-all text-xs leading-6 text-slate-900">{upstream.command.join(" ")}</code>
                 </div>
                 {upstream.cwd ? (
-                  <div className="rounded-[1rem] bg-slate-50 px-3 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">工作目录</p>
+                  <div className="rounded-lg bg-slate-50 px-3 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">工作目录</p>
                     <code className="mt-2 block break-all text-xs leading-6 text-slate-900">{upstream.cwd}</code>
                   </div>
                 ) : null}
               </div>
             ) : null}
 
-            {!upstream.url && !upstream.command?.length ? (
-              <div className="rounded-[1rem] border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                尚未填写完整配置。
+            {upstream.kind === "hosted-npm" ? (
+              <div className="space-y-3">
+                <div className="rounded-lg bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">npm 包</p>
+                  <code className="mt-2 block break-all text-xs leading-6 text-slate-900">
+                    {upstream.packageVersion ? `${upstream.packageName}@${upstream.packageVersion}` : upstream.packageName || "未填写包名"}
+                  </code>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">入口命令</p>
+                  <code className="mt-2 block break-all text-xs leading-6 text-slate-900">{upstream.binName || "未填写入口命令"}</code>
+                </div>
+              </div>
+            ) : null}
+
+            {upstream.kind === "hosted-single-file" ? (
+              <div className="space-y-3">
+                <div className="rounded-lg bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">文件信息</p>
+                  <p className="mt-2 text-xs leading-6 text-slate-900">
+                    {(upstream.fileName || "未命名文件") + " / " + (upstream.runtime || "node")}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">内容概览</p>
+                  <p className="mt-2 text-xs leading-6 text-slate-900">
+                    {upstream.source?.trim() ? `${upstream.source.split("\n").length} 行脚本内容` : "未填写单文件内容"}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {!upstream.url &&
+            !upstream.command?.length &&
+            !(upstream.kind === "hosted-npm" && upstream.packageName && upstream.binName) &&
+            !(upstream.kind === "hosted-single-file" && upstream.source?.trim()) ? (
+              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                尚未填写完整接入信息。
               </div>
             ) : null}
           </div>
@@ -137,7 +181,7 @@ export function WorkspaceDetail() {
     <div className="space-y-5">
       <PageHeader
         title={effectiveDisplayName}
-        description={workspace.description || "集中管理接入配置。"}
+        description={workspace.description || "从这里复制客户端配置，或继续调整服务的接入方式。"}
         meta={
           <>
             <StatusBadge tone="info">{workspace.id}</StatusBadge>
@@ -151,7 +195,7 @@ export function WorkspaceDetail() {
               返回列表
             </Link>
             <Link to={`/services/${id}/edit`} className="button-primary">
-              配置服务
+              修改接入
             </Link>
           </>
         }
@@ -166,12 +210,12 @@ export function WorkspaceDetail() {
 
         <div className="space-y-5 xl:sticky xl:top-6 xl:h-fit">
           <SectionCard
-            title="服务配置"
-            description={`共 ${effectiveUpstreams.length} 个来源，${clientSnippetCount} 个接入模板，缓存 ${effectiveCacheTtl}s。`}
+            title="接入方式"
+            description={`共 ${effectiveUpstreams.length} 条接入方式，${clientSnippetCount} 个客户端模板，缓存 ${effectiveCacheTtl}s。`}
             actions={
               primaryUpstream ? (
                 <StatusBadge tone={primaryUpstream.enabled ? "success" : "neutral"}>
-                  主来源：{primaryUpstream.label || primaryUpstream.id || "未命名"}
+                  已集成：{primaryUpstream.label || primaryUpstream.id || "未命名"}
                 </StatusBadge>
               ) : null
             }
@@ -182,7 +226,7 @@ export function WorkspaceDetail() {
                   <UpstreamSummaryRow key={`${upstream.id || index}-${upstream.kind}`} upstream={upstream} index={index} />
                 ))}
 
-                <details className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3">
+                <details className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <summary className="cursor-pointer list-none text-sm font-medium text-slate-700">查看原始配置</summary>
                   <div className="mt-4">
                     <JsonPreview data={previewConfig} />
@@ -190,8 +234,8 @@ export function WorkspaceDetail() {
                 </details>
               </div>
             ) : (
-              <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                还没有配置服务来源。
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                还没有配置接入方式，先去添加一种最容易接上的方式。
               </div>
             )}
           </SectionCard>

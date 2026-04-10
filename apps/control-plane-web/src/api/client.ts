@@ -41,7 +41,7 @@ export type Workspace = {
 export type UpstreamConfig = {
   id: string;
   label: string;
-  kind: "direct-http" | "local-stdio";
+  kind: "direct-http" | "local-stdio" | "hosted-npm" | "hosted-single-file";
   enabled: boolean;
   url?: string;
   headers?: Record<string, string>;
@@ -50,6 +50,13 @@ export type UpstreamConfig = {
   env?: Record<string, string>;
   timeoutMs?: number;
   autoStart?: boolean;
+  packageName?: string;
+  packageVersion?: string;
+  binName?: string;
+  args?: string[];
+  fileName?: string;
+  runtime?: "node" | "tsx" | "python" | "bash";
+  source?: string;
 };
 
 export type WorkspaceDraft = {

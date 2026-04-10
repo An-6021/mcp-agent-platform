@@ -1,5 +1,9 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -17,6 +21,9 @@ import {
   encodeResourceUri,
   prefixName,
   splitPrefixedName,
+  type HostedNpmUpstreamConfig,
+  type HostedSingleFileUpstreamConfig,
+  type LocalStdioUpstreamConfig,
   type WorkspaceUpstreamCapabilities,
   type UpstreamConfig,
 } from "@mcp-agent-platform/shared";
@@ -64,7 +71,7 @@ export class UpstreamManager {
   async initialize(): Promise<void> {
     await Promise.all(
       [...this.runtimes.entries()].map(async ([upstreamId, runtime]) => {
-        if (runtime.config.kind === "local-stdio" && !runtime.config.autoStart) return;
+        if (isStdioLikeUpstream(runtime.config) && !runtime.config.autoStart) return;
         await this.tryEnsureConnected(upstreamId);
       }),
     );
@@ -388,7 +395,7 @@ export class UpstreamManager {
       runtime.lastError = error.message;
     };
 
-    const transport = createClientTransport(runtime.config);
+    const transport = await createClientTransport(runtime.config);
     runtime.transport = transport;
 
     try {
@@ -406,7 +413,7 @@ export class UpstreamManager {
 
   private scheduleReconnect(runtime: UpstreamRuntime, upstreamId: string) {
     if (runtime.reconnectTimer) return;
-    if (runtime.config.kind !== "local-stdio") return;
+    if (!isStdioLikeUpstream(runtime.config)) return;
     if (!runtime.config.autoStart) return;
 
     const delay = Math.min(runtime.backoffMs, MAX_BACKOFF_MS);
@@ -497,7 +504,7 @@ export class UpstreamManager {
   }
 }
 
-function createClientTransport(config: UpstreamConfig): StdioClientTransport | StreamableHTTPClientTransport {
+async function createClientTransport(config: UpstreamConfig): Promise<StdioClientTransport | StreamableHTTPClientTransport> {
   if (config.kind === "direct-http") {
     return new StreamableHTTPClientTransport(new URL(config.url), {
       requestInit: {
@@ -506,16 +513,155 @@ function createClientTransport(config: UpstreamConfig): StdioClientTransport | S
     });
   }
 
-  const [command, ...args] = config.command;
+  const launch = await resolveStdioLaunchConfig(config);
+  const [command, ...args] = launch.command;
   if (!command) throw new Error(`无效的 stdio 命令：${config.id}`);
 
   return new StdioClientTransport({
     command: resolveStdioCommand(command),
     args,
-    env: inheritEnv(config.env),
-    cwd: config.cwd ?? undefined,
+    env: inheritEnv(launch.env),
+    cwd: launch.cwd,
     stderr: "inherit",
   });
+}
+
+type StdioLaunchConfig = {
+  command: string[];
+  env: Record<string, string>;
+  cwd?: string;
+};
+
+function isStdioLikeUpstream(
+  config: UpstreamConfig,
+): config is LocalStdioUpstreamConfig | HostedNpmUpstreamConfig | HostedSingleFileUpstreamConfig {
+  return config.kind === "local-stdio" || config.kind === "hosted-npm" || config.kind === "hosted-single-file";
+}
+
+async function resolveStdioLaunchConfig(
+  config: LocalStdioUpstreamConfig | HostedNpmUpstreamConfig | HostedSingleFileUpstreamConfig,
+): Promise<StdioLaunchConfig> {
+  if (config.kind === "local-stdio") {
+    return {
+      command: config.command,
+      env: config.env,
+      cwd: config.cwd ?? undefined,
+    };
+  }
+
+  if (config.kind === "hosted-npm") {
+    const packageSpec = config.packageVersion ? `${config.packageName}@${config.packageVersion}` : config.packageName;
+    return {
+      command: ["npx", "-y", "--package", packageSpec, config.binName, ...config.args],
+      env: config.env,
+      cwd: config.cwd ?? undefined,
+    };
+  }
+
+  const prepared = await materializeHostedSingleFile(config);
+  return {
+    command: buildHostedSingleFileCommand(config, prepared.filePath),
+    env: config.env,
+    cwd: config.cwd ?? prepared.workDir,
+  };
+}
+
+function buildHostedSingleFileCommand(config: HostedSingleFileUpstreamConfig, filePath: string): string[] {
+  switch (config.runtime) {
+    case "tsx":
+      return ["npx", "-y", "tsx", filePath, ...config.args];
+    case "python":
+      return ["python3", filePath, ...config.args];
+    case "bash":
+      return ["bash", filePath, ...config.args];
+    case "node":
+    default:
+      return ["node", filePath, ...config.args];
+  }
+}
+
+async function materializeHostedSingleFile(config: HostedSingleFileUpstreamConfig): Promise<{ filePath: string; workDir: string }> {
+  const fileName = normalizeHostedFileName(config.fileName, config.runtime);
+  const contentHash = sha256(
+    JSON.stringify({
+      fileName,
+      runtime: config.runtime,
+      source: config.source,
+    }),
+  ).slice(0, 16);
+  const workDir = path.join(tmpdir(), "mcp-agent-platform-hosted", sanitizePathSegment(config.id), contentHash);
+  const filePath = path.join(workDir, fileName);
+
+  await mkdir(workDir, { recursive: true });
+  await writeFile(filePath, config.source.endsWith("\n") ? config.source : `${config.source}\n`, "utf8");
+
+  if (config.runtime === "node" || config.runtime === "tsx") {
+    const nodeModulesDir = findNearestNodeModulesDir(fileURLToPath(import.meta.url));
+    if (nodeModulesDir) {
+      await ensureNodeModulesLink(workDir, nodeModulesDir);
+    }
+  }
+
+  return { filePath, workDir };
+}
+
+function normalizeHostedFileName(fileName: string, runtime: HostedSingleFileUpstreamConfig["runtime"]): string {
+  const trimmed = path.basename(fileName.trim());
+  const fallback = getDefaultHostedFileName(runtime);
+  if (!trimmed) return fallback;
+  if (path.extname(trimmed)) return trimmed;
+  return `${trimmed}${path.extname(fallback)}`;
+}
+
+function getDefaultHostedFileName(runtime: HostedSingleFileUpstreamConfig["runtime"]): string {
+  switch (runtime) {
+    case "tsx":
+      return "index.ts";
+    case "python":
+      return "main.py";
+    case "bash":
+      return "main.sh";
+    case "node":
+    default:
+      return "index.mjs";
+  }
+}
+
+function sanitizePathSegment(value: string): string {
+  const normalized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-");
+  return normalized || "upstream";
+}
+
+function findNearestNodeModulesDir(fromFilePath: string): string | null {
+  let currentDir = path.dirname(fromFilePath);
+
+  while (true) {
+    const candidate = path.join(currentDir, "node_modules");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      return null;
+    }
+    currentDir = parentDir;
+  }
+}
+
+async function ensureNodeModulesLink(workDir: string, targetNodeModulesDir: string): Promise<void> {
+  const linkPath = path.join(workDir, "node_modules");
+  if (existsSync(linkPath)) {
+    return;
+  }
+
+  try {
+    await symlink(targetNodeModulesDir, linkPath, process.platform === "win32" ? "junction" : "dir");
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
+      throw error;
+    }
+  }
 }
 
 function resolveStdioCommand(command: string): string {
@@ -557,6 +703,10 @@ function ensureNodeBinInPath(env: Record<string, string>) {
   const parts = current.split(path.delimiter).filter(Boolean);
   if (parts.includes(nodeBinDir)) return;
   env[pathKey] = [nodeBinDir, ...parts].join(path.delimiter);
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function toolError(message: string): CallToolResult {

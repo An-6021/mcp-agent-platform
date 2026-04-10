@@ -1,6 +1,6 @@
 {
   "name": "mcp-agent-platform",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "A local stdio MCP agent that loads personalized remote config and connects to upstream MCP services.",
   "license": "MIT",
   "type": "module",
@@ -28,6 +28,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@mcp-agent-platform/runtime": "workspace:*",
+    "@mcp-agent-platform/shared": "workspace:*"
   },
   "scripts": {
     "build": "tsup",

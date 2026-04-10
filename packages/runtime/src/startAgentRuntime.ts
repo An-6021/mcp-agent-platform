@@ -6,6 +6,7 @@ import {
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
   type CallToolRequest,
@@ -13,6 +14,7 @@ import {
   type ReadResourceRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { WorkspaceConfig } from "@mcp-agent-platform/shared";
+import { DiscoveryCatalog } from "./discoveryCatalog";
 import { UpstreamManager } from "./upstreamManager";
 
 export type AgentRuntimeHandle = {
@@ -22,7 +24,11 @@ export type AgentRuntimeHandle = {
 export async function launchAgentRuntime(config: WorkspaceConfig, transport: Transport): Promise<AgentRuntimeHandle> {
   const upstreams = new UpstreamManager(config.upstreams);
   await upstreams.initialize();
-  const capabilities = upstreams.getRuntimeCapabilities();
+  const discoveryCatalog = new DiscoveryCatalog(config, upstreams);
+  const capabilities = {
+    ...upstreams.getRuntimeCapabilities(),
+    resources: { listChanged: true as const },
+  };
 
   const server = new Server(
     { name: `mcp-agent-${config.workspaceId}`, version: "0.1.0" },
@@ -32,18 +38,23 @@ export async function launchAgentRuntime(config: WorkspaceConfig, transport: Tra
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: await upstreams.listTools(),
+    tools: [discoveryCatalog.getMetaToolDefinition(), ...(await upstreams.listTools())],
   }));
 
-  if (capabilities.resources) {
-    server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-      resources: await upstreams.listResources(),
-    }));
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [...(await discoveryCatalog.listMetaResources()), ...(await upstreams.listResources())],
+  }));
 
-    server.setRequestHandler(ReadResourceRequestSchema, async (request: ReadResourceRequest) => {
-      return await upstreams.readResource(request.params.uri);
-    });
-  }
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
+    resourceTemplates: discoveryCatalog.listMetaResourceTemplates(),
+  }));
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request: ReadResourceRequest) => {
+    if (discoveryCatalog.isMetaResourceUri(request.params.uri)) {
+      return await discoveryCatalog.readMetaResource(request.params.uri);
+    }
+    return await upstreams.readResource(request.params.uri);
+  });
 
   if (capabilities.prompts) {
     server.setRequestHandler(ListPromptsRequestSchema, async () => ({
@@ -56,6 +67,9 @@ export async function launchAgentRuntime(config: WorkspaceConfig, transport: Tra
   }
 
   server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
+    if (discoveryCatalog.isMetaTool(request.params.name)) {
+      return await discoveryCatalog.callMetaTool(request.params.arguments);
+    }
     return await upstreams.callTool(request.params.name, request.params.arguments);
   });
 

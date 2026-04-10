@@ -1,326 +1,126 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REQUIRED_NODE_MAJOR=18
-MODE="menu"
+# ── 颜色 ─────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
 
-usage() {
-  cat <<'EOF'
-用法:
-  bash scripts/bootstrap.sh
-  bash scripts/bootstrap.sh --check
-  bash scripts/bootstrap.sh --run
-  bash scripts/bootstrap.sh --build
+ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
+warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
+fail() { echo -e "  ${RED}✗${NC} $1"; }
+info() { echo -e "  ${CYAN}→${NC} $1"; }
 
-说明:
-  不带参数时会进入数字菜单，你可以输入 1 / 2 / 3 / 0 选择操作。
-  本地运行时如果默认端口被占用，会自动顺延到下一个可用端口。
+# ── 环境检测 ──────────────────────────────────────────────────────────
+check_env() {
+  echo -e "\n${BOLD}环境检测${NC}\n"
+  local ok_count=0
+  local total=3
 
-参数:
-  --check  环境检测；如果缺少依赖会自动安装
-  --run    本地运行 control-plane-api 和 control-plane-web
-  --build  执行打包
-  --help   显示帮助
-EOF
-}
+  # Node.js
+  if command -v node &>/dev/null; then
+    ok "Node.js $(node -v)"
+    ((ok_count++))
+  else
+    fail "Node.js 未找到"
+  fi
 
-log_info() {
-  printf '[INFO] %s\n' "$1"
-}
+  # pnpm
+  if command -v pnpm &>/dev/null; then
+    ok "pnpm $(pnpm -v)"
+    ((ok_count++))
+  else
+    fail "pnpm 未找到"
+  fi
 
-log_warn() {
-  printf '[WARN] %s\n' "$1"
-}
-
-log_error() {
-  printf '[ERROR] %s\n' "$1" >&2
-}
-
-command_exists() {
-  command -v "$1" >/dev/null 2>&1
-}
-
-to_lower() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
-}
-
-run_in_root() {
-  local description="$1"
-  shift
-  log_info "$description"
-  (
-    cd "$ROOT_DIR"
-    "$@"
-  )
-}
-
-required_pnpm() {
-  awk -F'"' '/"packageManager"/ { print $4; exit }' "$ROOT_DIR/package.json"
-}
-
-port_usage() {
-  local port="$1"
-  lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
-}
-
-pick_available_port() {
-  local preferred_port="$1"
-  local label="$2"
-  local port="$preferred_port"
-  local usage=""
-
-  while true; do
-    usage="$(port_usage "$port")"
-    if [[ -z "$usage" ]]; then
-      if [[ "$port" != "$preferred_port" ]]; then
-        printf '[WARN] %s\n' "${label} 默认端口 ${preferred_port} 已被占用，自动改用 ${port}。" >&2
-      fi
-      printf '%s\n' "$port"
-      return 0
+  # 依赖安装
+  if [ -d "node_modules" ]; then
+    ok "依赖已安装"
+    ((ok_count++))
+  else
+    warn "依赖未安装，正在安装..."
+    pnpm install
+    if [ $? -eq 0 ]; then
+      ok "依赖安装完成"
+      ((ok_count++))
+    else
+      fail "依赖安装失败"
     fi
+  fi
 
-    port=$((port + 1))
-    if [[ "$port" -gt $((preferred_port + 20)) ]]; then
-      log_error "${label} 在 ${preferred_port} 到 $((preferred_port + 20)) 之间都没有可用端口。"
-      printf '%s\n' "$usage"
-      return 1
-    fi
-  done
-}
-
-run_in_dir_with_env() {
-  local work_dir="$1"
-  shift
-  (
-    cd "$work_dir"
-    env "$@"
-  )
-}
-
-print_environment_summary() {
-  local os_name arch_name
-  os_name="$(uname -s)"
-  arch_name="$(uname -m)"
-
-  log_info "项目目录: ${ROOT_DIR}"
-  log_info "操作系统: ${os_name}"
-  log_info "机器架构: ${arch_name}"
-}
-
-check_node() {
-  local version major
-
-  if ! command_exists node; then
-    log_error "未检测到 Node.js，请先安装 Node.js >= ${REQUIRED_NODE_MAJOR}。"
+  echo ""
+  if [ $ok_count -eq $total ]; then
+    ok "环境检测通过 ($ok_count/$total)"
+  else
+    fail "环境检测未通过 ($ok_count/$total)"
     return 1
   fi
-
-  version="$(node -v)"
-  major="$(printf '%s' "$version" | sed -E 's/^v([0-9]+).*/\1/')"
-
-  if [[ -z "$major" || "$major" -lt "$REQUIRED_NODE_MAJOR" ]]; then
-    log_error "当前 Node.js 版本为 ${version}，需要 >= v${REQUIRED_NODE_MAJOR}。"
-    return 1
-  fi
-
-  log_info "Node.js 版本: ${version}"
 }
 
-ensure_pnpm() {
-  local wanted current
-  wanted="$(required_pnpm)"
+# ── 本地运行 ──────────────────────────────────────────────────────────
+run_dev() {
+  echo -e "\n${BOLD}启动本地开发${NC}\n"
+  check_env || return 1
 
-  if command_exists pnpm; then
-    current="$(pnpm --version)"
-    log_info "pnpm 版本: v${current}"
-    return 0
-  fi
+  echo ""
+  info "构建共享包..."
+  pnpm -r --filter @mcp-agent-platform/shared --filter @mcp-agent-platform/runtime build 2>/dev/null || true
 
-  if ! command_exists corepack; then
-    log_error "未检测到 pnpm，且当前环境没有 corepack，无法自动安装。"
-    return 1
-  fi
+  echo ""
+  info "启动控制面 API + Web..."
+  pnpm dev:api &
+  local api_pid=$!
+  sleep 1
+  pnpm dev:web &
+  local web_pid=$!
 
-  run_in_root "正在通过 corepack 激活 ${wanted}" corepack prepare "$wanted" --activate
-  log_info "pnpm 已通过 corepack 激活。"
+  echo ""
+  ok "API 和 Web 已启动"
+  info "按 Ctrl+C 停止"
+
+  trap "kill $api_pid $web_pid 2>/dev/null; exit 0" INT TERM
+  wait
 }
 
-ensure_dependencies() {
-  if [[ -d "$ROOT_DIR/node_modules" ]]; then
-    log_info "依赖已就绪。"
-    return 0
-  fi
+# ── 打包 ──────────────────────────────────────────────────────────────
+run_build() {
+  echo -e "\n${BOLD}执行打包${NC}\n"
+  check_env || return 1
 
-  log_warn "未检测到 node_modules，开始自动安装依赖。"
-  run_in_root "安装依赖中..." pnpm install
+  echo ""
+  info "构建全部包..."
+  pnpm build
+
+  echo ""
+  ok "打包完成"
 }
 
-prepare_environment() {
-  print_environment_summary
-  check_node
-  ensure_pnpm
-  ensure_dependencies
-}
-
-run_check_mode() {
-  prepare_environment
-  log_info "环境已就绪。"
-}
-
-run_build_mode() {
-  prepare_environment
-  run_in_root "执行打包中..." pnpm build
-  log_info "打包完成。"
-}
-
-run_local_mode() {
-  local api_pid web_pid status=0 interrupted=0 api_port web_port api_base_url web_origin
-
-  prepare_environment
-  api_port="$(pick_available_port 3100 "API")"
-  web_port="$(pick_available_port 5173 "Web")"
-  api_base_url="http://127.0.0.1:${api_port}"
-  web_origin="http://127.0.0.1:${web_port}"
-
-  log_info "本地运行启动中..."
-  log_info "API: ${api_base_url}"
-  log_info "Web: ${web_origin}"
-  log_info "按 Ctrl-C 可同时停止两个进程。"
-
-  (
-    cd "$ROOT_DIR/apps/control-plane-api"
-    pnpm exec tsx watch src/cli.ts --host 127.0.0.1 --port "$api_port"
-  ) &
-  api_pid=$!
-  (
-    cd "$ROOT_DIR/apps/control-plane-web"
-    MCP_CONTROL_PLANE_WEB_PORT="$web_port" \
-    MCP_CONTROL_PLANE_API_BASE_URL="$api_base_url" \
-    VITE_LOCAL_API_BASE_URL="$api_base_url" \
-      pnpm exec vite --host 127.0.0.1 --port "$web_port"
-  ) &
-  web_pid=$!
-
-  cleanup() {
-    kill "$api_pid" "$web_pid" 2>/dev/null || true
-    wait "$api_pid" 2>/dev/null || true
-    wait "$web_pid" 2>/dev/null || true
-  }
-
-  on_interrupt() {
-    interrupted=1
-    cleanup
-  }
-
-  trap on_interrupt INT TERM
-  trap cleanup EXIT
-
-  wait "$api_pid" || status=$?
-  if [[ "$interrupted" -eq 0 ]]; then
-    wait "$web_pid" || status=$?
-  fi
-
-  trap - INT TERM EXIT
-  cleanup
-  log_info "本地运行已停止。"
-
-  if [[ "$interrupted" -eq 1 || "$status" -eq 130 || "$status" -eq 143 ]]; then
-    return 0
-  fi
-
-  return "$status"
-}
-
-print_menu() {
-  cat <<'EOF'
-
-================ MCP Agent Platform ================
-1. 环境检测
-2. 本地运行
-3. 执行打包
-0. 退出
-===================================================
-EOF
-}
-
-run_menu() {
-  local choice
-
-  while true; do
-    print_menu
-    printf '请输入编号: '
-    read -r choice || true
-
-    case "$(to_lower "${choice:-}")" in
-      1)
-        run_check_mode
-        ;;
-      2)
-        run_local_mode
-        ;;
-      3)
-        run_build_mode
-        ;;
-      0|q|quit|exit)
-        log_info "已退出。"
-        return 0
-        ;;
-      *)
-        log_warn "无效编号，请输入 0 到 3。"
-        ;;
+# ── 参数分发 ──────────────────────────────────────────────────────────
+case "${1:-}" in
+  --check)
+    check_env
+    ;;
+  --run)
+    run_dev
+    ;;
+  --build)
+    run_build
+    ;;
+  *)
+    echo -e "\n${BOLD}MCP Agent Platform${NC}\n"
+    echo "  1) 环境检测"
+    echo "  2) 本地运行"
+    echo "  3) 执行打包"
+    echo ""
+    read -rp "  请选择 [1-3]: " choice
+    case "$choice" in
+      1) check_env ;;
+      2) run_dev ;;
+      3) run_build ;;
+      *) echo "  无效选择"; exit 1 ;;
     esac
-  done
-}
-
-parse_args() {
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --check)
-        MODE="check"
-        ;;
-      --run)
-        MODE="run"
-        ;;
-      --build)
-        MODE="build"
-        ;;
-      --help)
-        usage
-        exit 0
-        ;;
-      *)
-        log_error "未知参数: $1"
-        usage
-        exit 2
-        ;;
-    esac
-    shift
-  done
-}
-
-main() {
-  parse_args "$@"
-
-  case "$MODE" in
-    menu)
-      run_menu
-      ;;
-    check)
-      run_check_mode
-      ;;
-    run)
-      run_local_mode
-      ;;
-    build)
-      run_build_mode
-      ;;
-    *)
-      log_error "未知模式: $MODE"
-      exit 2
-      ;;
-  esac
-}
-
-main "$@"
+    ;;
+esac

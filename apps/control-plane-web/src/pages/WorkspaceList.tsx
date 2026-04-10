@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type WorkspaceSummary } from "../api/client";
 import { MetricStrip, PageHeader, SectionCard, StatusBadge, type BadgeTone } from "../components/ConsolePrimitives";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/Select";
 import { buildAgentCommand } from "../utils/clientConfigs";
 import { formatWorkspaceStatusLabel } from "../utils/labels";
 
@@ -104,11 +105,11 @@ export function WorkspaceList() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="MCP 服务"
-        description="集中管理服务配置与客户端接入。"
+        title="服务接入"
+        description="先建一个服务名，再选一种接入方式，就能给客户端直接复制配置。"
         actions={
           <button onClick={() => setShowCreate(true)} className="button-primary">
-            新建服务
+            新建接入
           </button>
         }
       />
@@ -122,7 +123,7 @@ export function WorkspaceList() {
         ]}
       />
 
-      <SectionCard title="服务列表">
+      <SectionCard title="服务列表" description="保留最少操作，只在需要时进入修改。">
         <div className="mb-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px_120px]">
           <label className="block">
             <span className="field-label">搜索</span>
@@ -136,15 +137,19 @@ export function WorkspaceList() {
 
           <label className="block">
             <span className="field-label">访问保护</span>
-            <select
+            <Select
               value={tokenFilter}
-              onChange={(event) => setTokenFilter(event.target.value as "all" | "with-token" | "without-token")}
-              className="field-select"
+              onValueChange={(val) => setTokenFilter(val as "all" | "with-token" | "without-token")}
             >
-              <option value="all">全部</option>
-              <option value="with-token">仅看已启用</option>
-              <option value="without-token">仅看未启用</option>
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="访问保护" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部</SelectItem>
+                <SelectItem value="with-token">仅看已启用</SelectItem>
+                <SelectItem value="without-token">仅看未启用</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
 
           <div className="flex items-end">
@@ -179,13 +184,13 @@ export function WorkspaceList() {
 
                   <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                     <Link to={`/services/${workspace.id}`} className="button-secondary px-3 py-1.5 text-xs">
-                      查看
+                      查看接入
                     </Link>
                     <Link to={`/services/${workspace.id}/edit`} className="button-ghost px-3 py-1.5 text-xs">
-                      配置
+                      修改接入
                     </Link>
                     <button onClick={() => copyCommand(workspace)} className="button-ghost px-3 py-1.5 text-xs">
-                      {workspace.hasToken ? "详情复制" : copiedId === workspace.id ? "已复制" : "复制接入"}
+                      {workspace.hasToken ? "前往详情" : copiedId === workspace.id ? "已复制" : "复制配置"}
                     </button>
                   </div>
                 </div>
@@ -201,8 +206,8 @@ export function WorkspaceList() {
           <aside className="drawer-panel">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">新建服务</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">创建一个可对外接入的 MCP 服务入口。</p>
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">新建接入</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">先填两个最关键的信息，创建后再继续选择接入方式。</p>
               </div>
               <button onClick={() => setShowCreate(false)} className="button-ghost">
                 关闭
@@ -225,7 +230,7 @@ export function WorkspaceList() {
                     className="field-input font-mono text-xs sm:text-sm"
                     placeholder="customer-support"
                   />
-                  <p className="field-help">会用于配置地址与客户端接入名。</p>
+                  <p className="field-help">会用于配置地址与客户端接入名，建议用简单英文短词。</p>
                 </label>
 
                 <label className="block">
@@ -236,28 +241,35 @@ export function WorkspaceList() {
                     className="field-input"
                     placeholder="例如：客服支持"
                   />
+                  <p className="field-help">这个名字会直接展示给使用者看。</p>
                 </label>
 
-                <label className="block">
-                  <span className="field-label">说明</span>
-                  <textarea
-                    value={newDescription}
-                    onChange={(event) => setNewDescription(event.target.value)}
-                    className="field-textarea"
-                    placeholder="可选，用来区分这个服务的用途。"
-                  />
-                </label>
+                <details className="rounded-[1.4rem] border border-slate-200 bg-slate-50 px-4 py-3">
+                  <summary className="cursor-pointer list-none text-sm font-medium text-slate-700">高级设置（可选）</summary>
+                  <div className="mt-4 space-y-5">
+                    <label className="block">
+                      <span className="field-label">说明</span>
+                      <textarea
+                        value={newDescription}
+                        onChange={(event) => setNewDescription(event.target.value)}
+                        className="field-textarea"
+                        placeholder="可选，用来区分这个服务的用途。"
+                      />
+                    </label>
 
-                <label className="block">
-                  <span className="field-label">缓存时长（秒）</span>
-                  <input
-                    type="number"
-                    min={60}
-                    value={newCacheTtl}
-                    onChange={(event) => setNewCacheTtl(Number(event.target.value))}
-                    className="field-input"
-                  />
-                </label>
+                    <label className="block">
+                      <span className="field-label">缓存时长（秒）</span>
+                      <input
+                        type="number"
+                        min={60}
+                        value={newCacheTtl}
+                        onChange={(event) => setNewCacheTtl(Number(event.target.value))}
+                        className="field-input"
+                      />
+                      <p className="field-help">默认 300 秒，一般不用改。</p>
+                    </label>
+                  </div>
+                </details>
               </div>
 
               <div className="mt-auto pt-6">
@@ -270,7 +282,7 @@ export function WorkspaceList() {
                     disabled={!newId.trim() || !newName.trim() || createMutation.isPending}
                     className="button-primary"
                   >
-                    {createMutation.isPending ? "创建中..." : "创建服务"}
+                    {createMutation.isPending ? "创建中..." : "创建并继续"}
                   </button>
                   <button type="button" onClick={() => setShowCreate(false)} className="button-secondary">
                     取消

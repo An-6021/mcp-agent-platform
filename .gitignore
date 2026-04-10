@@ -1,8 +1,18 @@
-node_modules
-dist
-.turbo
+node_modules/
+dist/
+coverage/
+.vite/
 .DS_Store
-.claude
-coverage
+.env
+.env.*
+.pnpm-store/
+pnpm-debug.log*
 *.log
-tmp
+*.orig
+.codex/
+
+# 运行时数据（含敏感配置）
+apps/control-plane-api/data/
+
+# 旧版发布归档
+_archive/
