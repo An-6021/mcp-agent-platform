@@ -1,5 +1,5 @@
 {
-  "name": "mcp-hub",
+  "name": "mcp-agent-platform",
   "version": "0.2.0",
   "description": "A local stdio MCP agent that loads personalized remote config and connects to upstream MCP services.",
   "license": "MIT",

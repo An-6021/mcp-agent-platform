@@ -17,19 +17,19 @@
 ## 安装
 
 ```bash
-npm install -g mcp-hub
+npm install -g mcp-agent-platform
 ```
 
 或直接使用：
 
 ```bash
-npx mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+npx -y mcp-agent-platform --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
 ```
 
 如果是给 Codex 接入，推荐直接使用 Codex 官方支持的 `stdio` 配置：
 
 ```bash
-codex mcp add mcp-hub -- npx -y mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+codex mcp add mcp-hub -- npx -y mcp-agent-platform --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
 ```
 
 或写入 `~/.codex/config.toml`：
@@ -37,7 +37,7 @@ codex mcp add mcp-hub -- npx -y mcp-hub --base-url https://mcp.a1yu.com --worksp
 ```toml
 [mcp_servers."mcp-hub"]
 command = "npx"
-args = ["-y", "mcp-hub", "--base-url", "https://mcp.a1yu.com", "--workspace", "mcp-hub", "--token", "your-token"]
+args = ["-y", "mcp-agent-platform", "--base-url", "https://mcp.a1yu.com", "--workspace", "mcp-hub", "--token", "your-token"]
 ```
 
 ## 用法
