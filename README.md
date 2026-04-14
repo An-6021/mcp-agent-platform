@@ -112,7 +112,7 @@ pnpm --filter ./packages/agent exec mcp-hub \
 按 Codex 官方习惯接入，优先使用本地 `stdio` agent：
 
 ```bash
-codex mcp add mcp-hub -- npx -y mcp-agent-platform --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+codex mcp add mcp-hub -- npx -y @sudau/mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
 ```
 
 对应的 `~/.codex/config.toml` 可写成：
@@ -120,17 +120,17 @@ codex mcp add mcp-hub -- npx -y mcp-agent-platform --base-url https://mcp.a1yu.c
 ```toml
 [mcp_servers."mcp-hub"]
 command = "npx"
-args = ["-y", "mcp-agent-platform", "--base-url", "https://mcp.a1yu.com", "--workspace", "mcp-hub", "--token", "your-token"]
+args = ["-y", "@sudau/mcp-hub", "--base-url", "https://mcp.a1yu.com", "--workspace", "mcp-hub", "--token", "your-token"]
 ```
 
 如果后续要发布成 npm 包，推荐优先使用这两种接入方式：
 
 ```bash
-npx -y mcp-agent-platform --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+npx -y @sudau/mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
 ```
 
 ```bash
-npx -y mcp-agent-platform --config-url https://mcp.a1yu.com/v1/workspaces/mcp-hub/config --workspace mcp-hub --token your-token
+npx -y @sudau/mcp-hub --config-url https://mcp.a1yu.com/v1/workspaces/mcp-hub/config --workspace mcp-hub --token your-token
 ```
 
 这里的 `base-url` 指“控制面 API 的根地址”，不是某个 MCP 服务地址。

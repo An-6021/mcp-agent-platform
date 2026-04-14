@@ -43,7 +43,7 @@ export function getWorkspaceConfigUrl(workspaceId: string, origin = window.locat
   return `${getControlPlaneBaseUrl(origin)}/v1/workspaces/${workspaceId}/config`;
 }
 
-const PUBLIC_PACKAGE_NAME = "mcp-agent-platform";
+const PUBLIC_PACKAGE_NAME = "@sudau/mcp-hub";
 
 function buildAgentArgs(workspaceId: string, token?: string): string[] {
   const args = [
