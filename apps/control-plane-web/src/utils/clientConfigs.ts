@@ -69,7 +69,6 @@ export function buildAgentCommand(options: ClientConfigOptions): string {
 
 export function buildClientConfigSnippets(options: ClientConfigOptions): ClientConfigSnippet[] {
   const serverName = options.workspaceId;
-  const mcpUrl = getWorkspaceMcpUrl(options.workspaceId);
   const agentArgs = buildAgentArgs(options.workspaceId, options.token);
 
   return [
@@ -93,15 +92,8 @@ export function buildClientConfigSnippets(options: ClientConfigOptions): ClientC
         {
           mcpServers: {
             [serverName]: {
-              type: "http",
-              url: mcpUrl,
-              ...(options.token
-                ? {
-                    headers: {
-                      Authorization: `Bearer ${options.token}`,
-                    },
-                  }
-                : {}),
+              command: "npx",
+              args: agentArgs,
             },
           },
         },
