@@ -1,8 +1,8 @@
 import type { LoadWorkspaceConfigOptions } from "./loadWorkspaceConfig";
 
 export const AGENT_USAGE = `Usage:
-  mcp-agent-platform --base-url <url> --workspace <id> [--token <token>] [--token-env <ENV_NAME>] [--cache-dir <path>]
-  mcp-agent-platform --config-url <url> --workspace <id> [--token <token>] [--token-env <ENV_NAME>] [--cache-dir <path>]
+  mcp-hub --base-url <url> --workspace <id> [--token <token>] [--token-env <ENV_NAME>] [--cache-dir <path>]
+  mcp-hub --config-url <url> --workspace <id> [--token <token>] [--token-env <ENV_NAME>] [--cache-dir <path>]
 
 Options:
   --base-url, --config-base-url  控制面基础地址，例如 http://127.0.0.1:3100
@@ -111,4 +111,3 @@ function readFirstNonEmpty(...values: Array<string | undefined>): string | undef
   }
   return undefined;
 }
-

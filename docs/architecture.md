@@ -76,7 +76,7 @@
 
 ### 配置下发主链路
 
-1. AI 工具启动本地 `mcp-agent-platform`
+1. AI 工具启动本地 agent CLI
 2. agent 读取远程控制面配置或本地缓存
 3. agent 将配置交给 runtime
 4. runtime 连接上游 MCP 来源并对外暴露一个统一入口

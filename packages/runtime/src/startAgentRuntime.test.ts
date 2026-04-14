@@ -23,6 +23,7 @@ type HttpUpstreamHandle = {
 };
 
 const META_TOOL_NAME = "mcp_agent_platform.describe_services";
+const ACTION_MANUAL_URI = "mcp-agent-meta://workspace/action-manual";
 const SERVICE_INDEX_URI = "mcp-agent-meta://services/index";
 const SERVICE_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/capabilities";
 
@@ -47,8 +48,8 @@ describe("launchAgentRuntime", () => {
 
     const config: WorkspaceConfig = {
       schemaVersion: 1,
-      workspaceId: "demo",
-      displayName: "演示工作区",
+      workspaceId: "mcp-hub",
+      displayName: "mcp-hub",
       generatedAt: "2026-03-17T00:00:00.000Z",
       cacheTtlSeconds: 300,
       upstreams: [
@@ -59,6 +60,7 @@ describe("launchAgentRuntime", () => {
           url: fullUpstream.url,
           headers: {},
           enabled: true,
+          cachedCapabilities: createFullCachedCapabilities("a"),
         },
         {
           id: "b",
@@ -67,6 +69,7 @@ describe("launchAgentRuntime", () => {
           url: toolsOnlyUpstream.url,
           headers: {},
           enabled: true,
+          cachedCapabilities: createToolsOnlyCachedCapabilities("b"),
         },
       ],
     };
@@ -84,24 +87,25 @@ describe("launchAgentRuntime", () => {
       expect(capabilities?.prompts).toBeTruthy();
 
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["a.echo", "a.sum", "b.echo", META_TOOL_NAME]);
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["a_echo", "a_sum", "b_echo", META_TOOL_NAME]);
 
-      const echoA = await client.callTool({ name: "a.echo", arguments: { text: "hi" } });
+      const echoA = await client.callTool({ name: "a_echo", arguments: { text: "hi" } });
       const echoAText = echoA.content.find((item) => item.type === "text");
       expect(echoAText && "text" in echoAText ? echoAText.text : "").toBe("a:echo:hi");
 
       const echoAResource = echoA.content.find((item) => item.type === "resource");
       expect(echoAResource && "resource" in echoAResource ? echoAResource.resource.uri : "").toMatch(/^mcp-agent:\/\/a\//);
 
-      const echoB = await client.callTool({ name: "b.echo", arguments: { text: "world" } });
+      const echoB = await client.callTool({ name: "b_echo", arguments: { text: "world" } });
       const echoBText = echoB.content.find((item) => item.type === "text");
       expect(echoBText && "text" in echoBText ? echoBText.text : "").toBe("b:echo:world");
 
-      const sumA = await client.callTool({ name: "a.sum", arguments: { a: 1, b: 2 } });
+      const sumA = await client.callTool({ name: "a_sum", arguments: { a: 1, b: 2 } });
       const sumAText = sumA.content.find((item) => item.type === "text");
       expect(sumAText && "text" in sumAText ? sumAText.text : "").toBe("3");
 
       const resources = await client.listResources();
+      expect(resources.resources.some((resource) => resource.uri === ACTION_MANUAL_URI)).toBe(true);
       expect(resources.resources.some((resource) => resource.uri === SERVICE_INDEX_URI)).toBe(true);
       const upstreamResource = resources.resources.find((resource) => decodeResourceUri(resource.uri)?.upstreamId === "a");
       expect(upstreamResource).toBeTruthy();
@@ -114,13 +118,18 @@ describe("launchAgentRuntime", () => {
       const serviceIndexPayload = parseReadResourceJson(serviceIndex);
       expect(serviceIndexPayload.services.map((service: { id: string }) => service.id)).toEqual(["a", "b"]);
 
+      const actionManual = await client.readResource({ uri: ACTION_MANUAL_URI });
+      const actionManualText = actionManual.contents.find((item) => "text" in item && typeof item.text === "string")?.text ?? "";
+      expect(actionManualText).toContain("请使用原生 callTool 调用以上工具，勿探测底层。");
+      expect(actionManualText).toContain("`a_echo`");
+
       const serviceTemplates = await client.listResourceTemplates();
       expect(serviceTemplates.resourceTemplates.map((item) => item.uriTemplate)).toContain(SERVICE_TEMPLATE_URI);
 
       const serviceOverview = await client.callTool({ name: META_TOOL_NAME, arguments: { includeDetails: true } });
       const overviewPayload = parseCallToolJson(serviceOverview);
       expect(overviewPayload.services).toHaveLength(2);
-      expect(overviewPayload.services[0].tools[0].qualifiedName).toBeTypeOf("string");
+      expect(overviewPayload.services[0].tools[0].qualifiedName).toBe("a_echo");
 
       const prompts = await client.listPrompts();
       expect(prompts.prompts.map((prompt) => prompt.name)).toEqual(["a.hello"]);
@@ -151,6 +160,7 @@ describe("launchAgentRuntime", () => {
           url: toolsOnlyUpstream.url,
           headers: {},
           enabled: true,
+          cachedCapabilities: createToolsOnlyCachedCapabilities("solo"),
         },
       ],
     };
@@ -165,17 +175,20 @@ describe("launchAgentRuntime", () => {
       const capabilities = client.getServerCapabilities();
       expect(capabilities?.tools).toBeTruthy();
       expect(capabilities?.resources).toBeTruthy();
-      expect(capabilities?.prompts).toBeUndefined();
+      expect(capabilities?.prompts).toBeTruthy();
 
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name).sort()).toEqual([META_TOOL_NAME, "solo.echo"].sort());
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual([META_TOOL_NAME, "solo_echo"].sort());
 
       const resources = await client.listResources();
       expect(resources.resources.some((resource) => resource.uri === SERVICE_INDEX_URI)).toBe(true);
 
+      const prompts = await client.listPrompts();
+      expect(prompts.prompts).toEqual([]);
+
       const serviceDetail = await client.readResource({ uri: "mcp-agent-meta://services/solo/capabilities" });
       const serviceDetailPayload = parseReadResourceJson(serviceDetail);
-      expect(serviceDetailPayload.service.tools.map((tool: { qualifiedName: string }) => tool.qualifiedName)).toEqual(["solo.echo"]);
+      expect(serviceDetailPayload.service.tools.map((tool: { qualifiedName: string }) => tool.qualifiedName)).toEqual(["solo_echo"]);
     } finally {
       await client.close();
     }
@@ -202,6 +215,7 @@ describe("launchAgentRuntime", () => {
           timeoutMs: 30_000,
           autoStart: true,
           enabled: true,
+          cachedCapabilities: createHostedFileCachedCapabilities(),
         },
       ],
     };
@@ -214,11 +228,87 @@ describe("launchAgentRuntime", () => {
 
     try {
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["file.echo", META_TOOL_NAME]);
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["file_echo", META_TOOL_NAME]);
 
-      const echo = await client.callTool({ name: "file.echo", arguments: { text: "hello" } });
+      const echo = await client.callTool({ name: "file_echo", arguments: { text: "hello" } });
       const echoText = echo.content.find((item) => item.type === "text");
       expect(echoText && "text" in echoText ? echoText.text : "").toBe("hosted-file:hello");
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("上游离线时仍返回缓存能力，直到真实调用才触发连接", async () => {
+    const config: WorkspaceConfig = {
+      schemaVersion: 1,
+      workspaceId: "offline-cache",
+      displayName: "Offline Cache",
+      generatedAt: "2026-04-13T00:00:00.000Z",
+      cacheTtlSeconds: 300,
+      upstreams: [
+        {
+          id: "offline",
+          label: "Offline",
+          kind: "direct-http",
+          url: "http://127.0.0.1:9/mcp",
+          headers: {},
+          enabled: true,
+          cachedCapabilities: {
+            generatedAt: "2026-04-13T00:00:00.000Z",
+            status: "ready",
+            error: null,
+            tools: [
+              {
+                name: "echo",
+                description: "Echo from cache",
+                inputSchema: {
+                  type: "object",
+                  properties: { text: { type: "string" } },
+                  required: ["text"],
+                },
+              },
+            ],
+            resources: [
+              {
+                uri: "resource://cached",
+                name: "cached",
+                description: "cached resource",
+                mimeType: "text/plain",
+              },
+            ],
+            prompts: [],
+            toolExposures: [
+              {
+                originalName: "echo",
+                exposedName: "offline_echo",
+                enabled: true,
+                order: 0,
+                strategy: "default",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    runtimeHandle = await launchAgentRuntime(config, serverTransport);
+
+    const client = new Client({ name: "runtime-offline-cache-client", version: "0.0.0" });
+    await client.connect(clientTransport);
+
+    try {
+      const tools = await client.listTools();
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual([META_TOOL_NAME, "offline_echo"].sort());
+
+      const resources = await client.listResources();
+      const upstreamResource = resources.resources.find((resource) => decodeResourceUri(resource.uri)?.upstreamId === "offline");
+      expect(upstreamResource).toBeTruthy();
+
+      const echo = await client.callTool({ name: "offline_echo", arguments: { text: "hi" } });
+      expect(echo.isError).toBe(true);
+
+      await expect(client.readResource({ uri: upstreamResource!.uri })).rejects.toThrow();
     } finally {
       await client.close();
     }
@@ -239,6 +329,124 @@ function parseCallToolJson(result: Awaited<ReturnType<Client["callTool"]>>) {
     throw new Error("tool result does not contain JSON text");
   }
   return JSON.parse(text) as Record<string, any>;
+}
+
+function createFullCachedCapabilities(serverId: string) {
+  return {
+    generatedAt: "2026-03-17T00:00:00.000Z",
+    status: "ready" as const,
+    error: null,
+    tools: [
+      {
+        name: "echo",
+        description: "Echo back input text",
+        inputSchema: {
+          type: "object",
+          properties: { text: { type: "string" } },
+          required: ["text"],
+        },
+      },
+      {
+        name: "sum",
+        description: "Sum two numbers",
+        inputSchema: {
+          type: "object",
+          properties: { a: { type: "number" }, b: { type: "number" } },
+          required: ["a", "b"],
+        },
+      },
+    ],
+    resources: [
+      {
+        uri: "resource://foo",
+        name: "foo",
+        description: `resource foo from ${serverId}`,
+        mimeType: "text/plain",
+      },
+    ],
+    prompts: [
+      {
+        name: "hello",
+        description: `prompt hello from ${serverId}`,
+      },
+    ],
+    toolExposures: [
+      {
+        originalName: "echo",
+        exposedName: `${serverId}_echo`,
+        enabled: true,
+        order: 0,
+        strategy: "default" as const,
+      },
+      {
+        originalName: "sum",
+        exposedName: `${serverId}_sum`,
+        enabled: true,
+        order: 1,
+        strategy: "default" as const,
+      },
+    ],
+  };
+}
+
+function createToolsOnlyCachedCapabilities(serverId: string) {
+  return {
+    generatedAt: "2026-03-17T00:00:00.000Z",
+    status: "ready" as const,
+    error: null,
+    tools: [
+      {
+        name: "echo",
+        description: "Echo back input text",
+        inputSchema: {
+          type: "object",
+          properties: { text: { type: "string" } },
+          required: ["text"],
+        },
+      },
+    ],
+    resources: [],
+    prompts: [],
+    toolExposures: [
+      {
+        originalName: "echo",
+        exposedName: `${serverId}_echo`,
+        enabled: true,
+        order: 0,
+        strategy: "default" as const,
+      },
+    ],
+  };
+}
+
+function createHostedFileCachedCapabilities() {
+  return {
+    generatedAt: "2026-03-30T00:00:00.000Z",
+    status: "ready" as const,
+    error: null,
+    tools: [
+      {
+        name: "echo",
+        description: "Echo text from hosted file",
+        inputSchema: {
+          type: "object",
+          properties: { text: { type: "string" } },
+          required: ["text"],
+        },
+      },
+    ],
+    resources: [],
+    prompts: [],
+    toolExposures: [
+      {
+        originalName: "echo",
+        exposedName: "file_echo",
+        enabled: true,
+        order: 0,
+        strategy: "default" as const,
+      },
+    ],
+  };
 }
 
 function createFullFeaturedUpstream(serverId: string): Server {

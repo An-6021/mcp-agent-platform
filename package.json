@@ -1,5 +1,5 @@
 {
-  "name": "mcp-agent-platform",
+  "name": "mcp-hub",
   "private": true,
   "packageManager": "pnpm@10.4.1",
   "scripts": {
@@ -10,8 +10,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "dev:api": "pnpm --filter @mcp-agent-platform/control-plane-api dev",
-    "dev:web": "pnpm --filter @mcp-agent-platform/control-plane-web dev"
+    "dev:api": "pnpm --filter ./apps/control-plane-api dev",
+    "dev:web": "pnpm --filter ./apps/control-plane-web dev"
   },
   "devDependencies": {
     "@types/node": "^24.3.3",

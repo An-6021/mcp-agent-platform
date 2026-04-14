@@ -60,15 +60,14 @@ export function WorkspaceList() {
   });
 
   async function copyCommand(workspace: WorkspaceSummary) {
-    if (workspace.hasToken) {
-      navigate(`/services/${workspace.id}`);
-      return;
-    }
-
-    const command = buildAgentCommand({ workspaceId: workspace.id, hasToken: workspace.hasToken });
-
     try {
+      const created = await api.createToken(workspace.id, {
+        label: `Codex Copy ${new Date().toISOString()}`,
+      });
+      const command = buildAgentCommand({ workspaceId: workspace.id, token: created.token });
       await navigator.clipboard.writeText(command);
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspace.id] });
       setCopiedId(workspace.id);
       window.setTimeout(() => {
         setCopiedId((current) => (current === workspace.id ? null : current));
@@ -160,7 +159,7 @@ export function WorkspaceList() {
         </div>
 
         {filteredWorkspaces.length === 0 ? (
-          <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
             还没有符合条件的服务。
           </div>
         ) : (
@@ -190,7 +189,7 @@ export function WorkspaceList() {
                       修改接入
                     </Link>
                     <button onClick={() => copyCommand(workspace)} className="button-ghost px-3 py-1.5 text-xs">
-                      {workspace.hasToken ? "前往详情" : copiedId === workspace.id ? "已复制" : "复制配置"}
+                      {copiedId === workspace.id ? "已复制" : "复制配置"}
                     </button>
                   </div>
                 </div>
@@ -244,7 +243,7 @@ export function WorkspaceList() {
                   <p className="field-help">这个名字会直接展示给使用者看。</p>
                 </label>
 
-                <details className="rounded-[1.4rem] border border-slate-200 bg-slate-50 px-4 py-3">
+                <details className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                   <summary className="cursor-pointer list-none text-sm font-medium text-slate-700">高级设置（可选）</summary>
                   <div className="mt-4 space-y-5">
                     <label className="block">

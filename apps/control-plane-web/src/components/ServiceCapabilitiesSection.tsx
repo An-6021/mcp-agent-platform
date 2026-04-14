@@ -92,7 +92,7 @@ function CapabilityRow({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
-    <div className="overflow-hidden rounded-[1.1rem] border border-slate-200 bg-white">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <button type="button" onClick={() => setExpanded((current) => !current)} className="flex w-full items-start gap-3 px-3 py-3 text-left">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -264,7 +264,7 @@ function UpstreamCapabilityPanel({
       {panelExpanded ? (
         <div className="border-t border-slate-200 px-4 pb-4 pt-3 sm:px-5">
           {upstream.status === "error" ? (
-            <div className="rounded-[1.1rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {upstream.error || "探测失败。"}
             </div>
           ) : (
@@ -338,15 +338,15 @@ export function ServiceCapabilitiesSection({ workspaceId }: Props) {
       </div>
 
       {isLoading ? (
-        <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
           正在探测能力...
         </div>
       ) : isError ? (
-        <div className="rounded-[1.75rem] border border-rose-200 bg-rose-50 px-4 py-10 text-center text-sm text-rose-700">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-10 text-center text-sm text-rose-700">
           {(error as Error).message || "能力探测失败。"}
         </div>
       ) : upstreams.length === 0 ? (
-        <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
           先添加服务来源。
         </div>
       ) : (

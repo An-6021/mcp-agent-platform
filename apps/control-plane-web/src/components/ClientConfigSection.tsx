@@ -1,108 +1,44 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type TokenMeta } from "../api/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/client";
 import { buildClientConfigSnippets } from "../utils/clientConfigs";
-import { CheckIcon, CopyIcon, KeyIcon, TrashIcon } from "./AppIcons";
+import { CheckIcon, CopyIcon } from "./AppIcons";
 
 type Props = {
   workspaceId: string;
-  tokens: TokenMeta[];
 };
 
-function formatTokenLabel() {
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const min = String(now.getMinutes()).padStart(2, "0");
-  return `私有访问 ${yyyy}-${mm}-${dd} ${hh}:${min}`;
-}
-
-function ConfigBlock({
+function CopyButton({
   title,
-  fileHint,
-  content,
   copied,
-  onCopy,
+  onClick,
 }: {
   title: string;
-  fileHint: string;
-  content: string;
   copied: boolean;
-  onCopy: () => void;
+  onClick: () => void;
 }) {
   return (
-    <div className="rounded-[1.5rem] border border-slate-200 bg-white">
-      <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-950">{title}</p>
-          <p className="mt-1 text-xs text-slate-500">{fileHint}</p>
-        </div>
-        <button
-          type="button"
-          onClick={onCopy}
-          title={copied ? "已复制" : "复制"}
-          aria-label={copied ? "已复制" : "复制"}
-          className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition-all active:scale-95 ${
-            copied
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
-          }`}
-        >
-          {copied ? <CheckIcon /> : <CopyIcon />}
-        </button>
-      </div>
-
-      <div className="rounded-b-[1.5rem] bg-slate-950 px-4 py-4 sm:px-5">
-        <pre className="code-block">{content}</pre>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`button-secondary gap-1.5 ${
+        copied
+          ? "!border-emerald-200 !bg-emerald-50 !text-emerald-700"
+          : ""
+      }`}
+    >
+      {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
+      {copied ? "已复制" : title}
+    </button>
   );
 }
 
-export function ClientConfigSection({ workspaceId, tokens }: Props) {
+export function ClientConfigSection({ workspaceId }: Props) {
   const queryClient = useQueryClient();
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [sessionTokenMeta, setSessionTokenMeta] = useState<TokenMeta | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [tokenCopied, setTokenCopied] = useState(false);
-
-  const activeTokens = [...tokens]
-    .filter((token) => !token.revokedAt)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  const isPrivate = activeTokens.length > 0 || Boolean(sessionToken);
-  const snippets = buildClientConfigSnippets({
-    workspaceId,
-    hasToken: isPrivate,
-    tokenValue: sessionToken,
-  });
-  const tomlSnippet = snippets.find((item) => item.id === "codex")!;
-  const jsonSnippet = snippets.find((item) => item.id === "claude-code")!;
-
-  const createTokenMutation = useMutation({
-    mutationFn: () => api.createToken(workspaceId, { label: formatTokenLabel() }),
-    onSuccess: (result) => {
-      setSessionToken(result.token);
-      setSessionTokenMeta(result.meta);
-      setTokenCopied(false);
-      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-    },
-  });
-
-  const revokeTokenMutation = useMutation({
-    mutationFn: (tokenId: string) => api.revokeToken(workspaceId, tokenId),
-    onSuccess: (_, tokenId) => {
-      if (sessionTokenMeta?.id === tokenId) {
-        setSessionToken(null);
-        setSessionTokenMeta(null);
-        setTokenCopied(false);
-      }
-      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-    },
-  });
+  const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const snippets = buildClientConfigSnippets({ workspaceId, token: generatedToken ?? undefined });
 
   function markCopied(id: string) {
     setCopiedId(id);
@@ -111,105 +47,78 @@ export function ClientConfigSection({ workspaceId, tokens }: Props) {
     }, 1500);
   }
 
-  async function copyContent(id: string, content: string) {
+  async function ensureToken() {
+    if (generatedToken) return generatedToken;
+    const created = await api.createToken(workspaceId, {
+      label: `Config Copy ${new Date().toISOString()}`,
+    });
+    setGeneratedToken(created.token);
+    queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
+    return created.token;
+  }
+
+  async function copyContent(id: string) {
     try {
-      await navigator.clipboard.writeText(content);
+      setCopyError(null);
+      const token = await ensureToken();
+      const snippet = buildClientConfigSnippets({ workspaceId, token }).find((item) => item.id === id);
+      if (!snippet) {
+        throw new Error("未找到可复制的配置");
+      }
+      await navigator.clipboard.writeText(snippet.content);
       markCopied(id);
-    } catch {
+    } catch (error) {
+      setCopyError(error instanceof Error ? error.message : "复制失败");
       setCopiedId(null);
     }
   }
 
-  async function copyTokenContent(content: string) {
-    try {
-      await navigator.clipboard.writeText(content);
-      setTokenCopied(true);
-      window.setTimeout(() => {
-        setTokenCopied(false);
-      }, 1500);
-    } catch {
-      setTokenCopied(false);
-    }
-  }
+  const tomlSnippet = snippets.find((snippet) => snippet.id === "toml");
+  const jsonSnippet = snippets.find((snippet) => snippet.id === "json");
 
   return (
-    <section className="space-y-4">
-      <ConfigBlock
-        title="TOML"
-        fileHint={tomlSnippet.fileHint}
-        content={tomlSnippet.content}
-        copied={copiedId === "toml"}
-        onCopy={() => void copyContent("toml", tomlSnippet.content)}
-      />
-
-      <ConfigBlock
-        title="JSON"
-        fileHint="Claude Code 的 MCP JSON / .cursor/mcp.json"
-        content={jsonSnippet.content}
-        copied={copiedId === "json"}
-        onCopy={() => void copyContent("json", jsonSnippet.content)}
-      />
-
-      <details className="surface-card px-4 py-3 sm:px-5">
-        <summary className="cursor-pointer list-none text-sm font-medium text-slate-700">私有</summary>
-        <div className="mt-4 space-y-4">
-          <button
-            onClick={() => createTokenMutation.mutate()}
-            disabled={createTokenMutation.isPending}
-            title="生成私有令牌"
-            aria-label="生成私有令牌"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition-all hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <KeyIcon />
-          </button>
-
-          {sessionToken ? (
-            <div className="rounded-[1rem] border border-amber-300 bg-white px-3 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-slate-950">刚生成的令牌</p>
-                <button
-                  type="button"
-                  onClick={() => copyTokenContent(sessionToken)}
-                  title={tokenCopied ? "已复制令牌" : "复制令牌"}
-                  aria-label={tokenCopied ? "已复制令牌" : "复制令牌"}
-                  className={`inline-flex h-9 w-9 items-center justify-center rounded-full border transition-all active:scale-95 ${
-                    tokenCopied
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
-                  }`}
-                >
-                  {tokenCopied ? <CheckIcon /> : <CopyIcon />}
-                </button>
-              </div>
-              <code className="mt-3 block break-all text-sm leading-6 text-slate-950">{sessionToken}</code>
-            </div>
-          ) : null}
-
-          {activeTokens.map((token) => (
-            <div key={token.id} className="rounded-[1rem] border border-slate-200 bg-white px-3 py-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-950">{token.label}</p>
-                  <code className="mt-2 block text-sm text-slate-700">{token.tokenPreview}</code>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => revokeTokenMutation.mutate(token.id)}
-                  disabled={revokeTokenMutation.isPending}
-                  title="吊销"
-                  aria-label="吊销"
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-white text-rose-600 transition-all hover:bg-rose-50 hover:text-rose-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <TrashIcon />
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {createTokenMutation.isError ? <p className="text-sm text-rose-600">{(createTokenMutation.error as Error).message}</p> : null}
-          {revokeTokenMutation.isError ? <p className="text-sm text-rose-600">{(revokeTokenMutation.error as Error).message}</p> : null}
+    <section className="surface-card px-4 py-4 sm:px-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-[#111]">客户端配置</p>
+          <p className="mt-1 text-[13px] text-[#666]">复制后直接粘贴到对应配置文件。</p>
         </div>
-      </details>
+
+        <div className="flex flex-wrap gap-2">
+          {tomlSnippet ? (
+            <CopyButton
+              title="复制 TOML"
+              copied={copiedId === "toml"}
+              onClick={() => void copyContent("toml")}
+            />
+          ) : null}
+          {jsonSnippet ? (
+            <CopyButton
+              title="复制 JSON"
+              copied={copiedId === "json"}
+              onClick={() => void copyContent("json")}
+            />
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {tomlSnippet ? (
+          <div className="rounded-lg border border-[#eaeaea] bg-white px-4 py-3">
+            <p className="text-sm font-semibold text-[#111]">TOML</p>
+            <p className="mt-1 text-xs text-[#999]">{tomlSnippet.fileHint}</p>
+          </div>
+        ) : null}
+        {jsonSnippet ? (
+          <div className="rounded-lg border border-[#eaeaea] bg-white px-4 py-3">
+            <p className="text-sm font-semibold text-[#111]">JSON</p>
+            <p className="mt-1 text-xs text-[#999]">{jsonSnippet.fileHint}</p>
+          </div>
+        ) : null}
+      </div>
+
+      {copyError ? <p className="mt-3 text-sm text-rose-600">{copyError}</p> : null}
     </section>
   );
 }

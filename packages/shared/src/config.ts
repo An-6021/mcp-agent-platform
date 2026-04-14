@@ -2,10 +2,61 @@ import { z } from "zod";
 
 export const WORKSPACE_CONFIG_SCHEMA_VERSION = 1 as const;
 
+export const CachedToolCapabilitySchema = z.object({
+  name: z.string().min(1),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  inputSchema: z.unknown().optional(),
+});
+export type CachedToolCapability = z.infer<typeof CachedToolCapabilitySchema>;
+
+export const CachedResourceCapabilitySchema = z.object({
+  uri: z.string().min(1),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  mimeType: z.string().optional(),
+});
+export type CachedResourceCapability = z.infer<typeof CachedResourceCapabilitySchema>;
+
+export const CachedPromptArgumentSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  required: z.boolean().optional(),
+});
+export type CachedPromptArgument = z.infer<typeof CachedPromptArgumentSchema>;
+
+export const CachedPromptCapabilitySchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  arguments: z.array(CachedPromptArgumentSchema).optional(),
+});
+export type CachedPromptCapability = z.infer<typeof CachedPromptCapabilitySchema>;
+
+export const CachedToolExposureSchema = z.object({
+  originalName: z.string().min(1),
+  exposedName: z.string().min(1),
+  enabled: z.boolean().default(true),
+  order: z.number().int().nonnegative().default(0),
+  strategy: z.enum(["default", "renamed", "hidden"]).default("default"),
+});
+export type CachedToolExposure = z.infer<typeof CachedToolExposureSchema>;
+
+export const CachedUpstreamCapabilitiesSchema = z.object({
+  generatedAt: z.iso.datetime(),
+  status: z.enum(["ready", "error"]),
+  error: z.string().nullable().default(null),
+  tools: z.array(CachedToolCapabilitySchema).default([]),
+  resources: z.array(CachedResourceCapabilitySchema).default([]),
+  prompts: z.array(CachedPromptCapabilitySchema).default([]),
+  toolExposures: z.array(CachedToolExposureSchema).default([]),
+});
+export type CachedUpstreamCapabilities = z.infer<typeof CachedUpstreamCapabilitiesSchema>;
+
 const BaseUpstreamSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   enabled: z.boolean().default(true),
+  cachedCapabilities: CachedUpstreamCapabilitiesSchema.nullable().optional().default(null),
 });
 
 const BaseLocalProcessUpstreamSchema = BaseUpstreamSchema.extend({

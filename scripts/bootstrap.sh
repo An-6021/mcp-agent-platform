@@ -67,7 +67,7 @@ run_dev() {
 
   echo ""
   info "构建共享包..."
-  pnpm -r --filter @mcp-agent-platform/shared --filter @mcp-agent-platform/runtime build 2>/dev/null || true
+  pnpm -r --filter ./packages/shared --filter ./packages/runtime build 2>/dev/null || true
 
   echo ""
   info "启动控制面 API + Web..."
@@ -110,7 +110,7 @@ case "${1:-}" in
     run_build
     ;;
   *)
-    echo -e "\n${BOLD}MCP Agent Platform${NC}\n"
+    echo -e "\n${BOLD}mcp-hub${NC}\n"
     echo "  1) 环境检测"
     echo "  2) 本地运行"
     echo "  3) 执行打包"

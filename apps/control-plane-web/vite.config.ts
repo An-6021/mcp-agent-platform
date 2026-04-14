@@ -7,6 +7,10 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(currentDir, "../..");
 const nodeExecPath = process.execPath;
 const localApiBaseUrl = process.env.MCP_CONTROL_PLANE_API_BASE_URL ?? "http://127.0.0.1:3100";
+const publicControlPlaneBaseUrl =
+  process.env.MCP_CONTROL_PLANE_PUBLIC_BASE_URL ??
+  process.env.VITE_PUBLIC_MCP_BASE_URL ??
+  "";
 const webPort = Number(process.env.MCP_CONTROL_PLANE_WEB_PORT ?? "5173");
 
 export default defineConfig({
@@ -14,6 +18,7 @@ export default defineConfig({
   define: {
     __MCP_AGENT_LOCAL_REPO_ROOT__: JSON.stringify(repoRoot),
     __MCP_AGENT_LOCAL_NODE_EXECUTABLE__: JSON.stringify(nodeExecPath),
+    __MCP_AGENT_PUBLIC_CONTROL_PLANE_BASE_URL__: JSON.stringify(publicControlPlaneBaseUrl),
   },
   server: {
     host: "127.0.0.1",

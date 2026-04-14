@@ -10,14 +10,15 @@ import type { WorkspaceUpstreamCapabilities } from "@mcp-agent-platform/shared";
 import { UpstreamManager } from "./upstreamManager";
 
 const META_URI_SCHEME = "mcp-agent-meta:";
+const ACTION_MANUAL_URI = "mcp-agent-meta://workspace/action-manual";
 const WORKSPACE_SUMMARY_URI = "mcp-agent-meta://workspace/summary";
 const SERVICES_INDEX_URI = "mcp-agent-meta://services/index";
 const SERVICES_CAPABILITIES_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/capabilities";
 const SERVICES_CONFIG_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/config-redacted";
-const DISCOVERY_SNAPSHOT_TTL_MS = 30_000;
 const META_TOOL_NAME = "mcp_agent_platform.describe_services";
 
 type MetaReadTarget =
+  | { kind: "action-manual" }
   | { kind: "workspace-summary" }
   | { kind: "services-index" }
   | { kind: "service-capabilities"; serviceId: string }
@@ -94,9 +95,6 @@ type ServiceDiscoveryEntry = ServiceDiscoverySummary & {
 };
 
 export class DiscoveryCatalog {
-  private cachedSnapshot?: DiscoverySnapshot;
-  private cachedAtMs = 0;
-
   constructor(
     private readonly config: WorkspaceConfig,
     private readonly upstreams: UpstreamManager,
@@ -196,6 +194,12 @@ export class DiscoveryCatalog {
     const snapshot = await this.getSnapshot();
     return [
       {
+        uri: ACTION_MANUAL_URI,
+        name: "Workspace Action Manual",
+        description: "Preferred entrypoint for models: use callTool with the listed tool names and avoid probing upstream internals.",
+        mimeType: "text/markdown",
+      },
+      {
         uri: WORKSPACE_SUMMARY_URI,
         name: "Workspace Summary",
         description: "High-level summary of this workspace and the current service health.",
@@ -258,6 +262,8 @@ export class DiscoveryCatalog {
     const snapshot = await this.getSnapshot();
 
     switch (target.kind) {
+      case "action-manual":
+        return markdownResource(uri, renderActionManual(snapshot));
       case "workspace-summary":
         return jsonResource(uri, {
           workspaceId: snapshot.workspaceId,
@@ -308,31 +314,11 @@ export class DiscoveryCatalog {
   }
 
   private async getSnapshot(force = false): Promise<DiscoverySnapshot> {
-    const now = Date.now();
-    if (!force && this.cachedSnapshot && now - this.cachedAtMs < DISCOVERY_SNAPSHOT_TTL_MS) {
-      return this.cachedSnapshot;
-    }
-
-    try {
-      const raw = await this.upstreams.inspectCapabilities();
-      const nextSnapshot = buildDiscoverySnapshot(this.config, {
-        workspaceId: this.config.workspaceId,
-        generatedAt: new Date().toISOString(),
-        upstreams: raw,
-      });
-      this.cachedSnapshot = nextSnapshot;
-      this.cachedAtMs = now;
-      return nextSnapshot;
-    } catch (error) {
-      if (this.cachedSnapshot) {
-        return {
-          ...this.cachedSnapshot,
-          stale: true,
-          staleReason: error instanceof Error ? error.message : String(error),
-        };
-      }
-      throw error;
-    }
+    void force;
+    return buildDiscoverySnapshot(this.config, {
+      ...this.upstreams.getCachedWorkspaceCapabilities(),
+      workspaceId: this.config.workspaceId,
+    });
   }
 }
 
@@ -358,12 +344,7 @@ function buildDiscoverySnapshot(config: WorkspaceConfig, capabilities: Workspace
 function buildServiceEntry(service: WorkspaceUpstreamCapabilities, config: UpstreamConfig | null): ServiceDiscoveryEntry {
   const detailUri = buildServiceCapabilitiesUri(service.upstreamId);
   const configUri = buildServiceConfigUri(service.upstreamId);
-  const tools = service.tools.map((tool) => ({
-    name: tool.name,
-    qualifiedName: prefixName(service.upstreamId, tool.name),
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-  }));
+  const tools = buildServiceToolEntries(service, config);
   const resources = service.resources.map((resource) => ({
     name: resource.name,
     runtimeUri: encodeResourceUri(service.upstreamId, resource.uri),
@@ -377,7 +358,8 @@ function buildServiceEntry(service: WorkspaceUpstreamCapabilities, config: Upstr
     description: prompt.description,
     arguments: prompt.arguments,
   }));
-  const preferredEntry = pickPreferredEntry(service.toolCount, service.resourceCount, service.promptCount);
+  const preferredEntry = pickPreferredEntry(tools.length, resources.length, prompts.length);
+  const toolPrefix = config?.cachedCapabilities?.toolExposures.length ? "" : `${service.upstreamId}.`;
 
   return {
     id: service.upstreamId,
@@ -385,11 +367,11 @@ function buildServiceEntry(service: WorkspaceUpstreamCapabilities, config: Upstr
     kind: service.upstreamKind,
     status: service.status,
     error: service.error,
-    toolCount: service.toolCount,
-    resourceCount: service.resourceCount,
-    promptCount: service.promptCount,
+    toolCount: tools.length,
+    resourceCount: resources.length,
+    promptCount: prompts.length,
     preferredEntry,
-    toolPrefix: `${service.upstreamId}.`,
+    toolPrefix,
     detailUri,
     configUri,
     qualifiedToolExamples: tools.slice(0, 3).map((tool) => tool.qualifiedName),
@@ -434,7 +416,7 @@ function toDetailedServicePayload(service: ServiceDiscoveryEntry, includeConfig:
 }
 
 function buildRecommendedUsageNotes(serviceId: string, preferredEntry: ServiceDiscoveryEntry["preferredEntry"], status: ServiceDiscoveryEntry["status"]): string[] {
-  const notes = [`Use qualified tool names with prefix ${serviceId}. when calling tools.`];
+  const notes = ["Use the listed tool names directly when calling tools."];
   if (preferredEntry === "resource") {
     notes.push("This service currently exposes resources but no tools.");
   }
@@ -448,6 +430,63 @@ function buildRecommendedUsageNotes(serviceId: string, preferredEntry: ServiceDi
     notes.push("Check the error field before relying on this service.");
   }
   return notes;
+}
+
+function buildServiceToolEntries(service: WorkspaceUpstreamCapabilities, config: UpstreamConfig | null): ServiceToolDiscovery[] {
+  const toolsByName = new Map(service.tools.map((tool) => [tool.name, tool]));
+  const exposures = config?.cachedCapabilities?.toolExposures ?? [];
+
+  if (exposures.length > 0) {
+    return exposures
+      .filter((exposure) => exposure.enabled)
+      .sort((left, right) => left.order - right.order || left.exposedName.localeCompare(right.exposedName))
+      .flatMap((exposure) => {
+        const tool = toolsByName.get(exposure.originalName);
+        if (!tool) return [];
+        return [
+          {
+            name: tool.name,
+            qualifiedName: exposure.exposedName,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+          },
+        ];
+      });
+  }
+
+  return service.tools.map((tool) => ({
+    name: tool.name,
+    qualifiedName: prefixName(service.upstreamId, tool.name),
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+  }));
+}
+
+function renderActionManual(snapshot: DiscoverySnapshot): string {
+  const lines = [
+    "# Workspace Action Manual",
+    "",
+    "请使用原生 callTool 调用以上工具，勿探测底层。",
+    "",
+  ];
+
+  const servicesWithTools = snapshot.services.filter((service) => service.tools.length > 0);
+  if (servicesWithTools.length === 0) {
+    lines.push("当前缓存中没有可调用工具。");
+    return lines.join("\n");
+  }
+
+  lines.push("## Cached Tools", "");
+  for (const service of servicesWithTools) {
+    lines.push(`### ${service.label} (${service.id})`);
+    for (const tool of service.tools) {
+      const description = tool.description?.trim() ? `: ${tool.description.trim()}` : "";
+      lines.push(`- \`${tool.qualifiedName}\`${description}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
 }
 
 function redactUpstreamConfig(config: UpstreamConfig): RedactedUpstreamConfig {
@@ -527,6 +566,10 @@ function parseMetaTarget(uri: string): MetaReadTarget | null {
     const parsed = new URL(uri);
     if (parsed.protocol !== META_URI_SCHEME) return null;
 
+    if (parsed.hostname === "workspace" && parsed.pathname === "/action-manual") {
+      return { kind: "action-manual" };
+    }
+
     if (parsed.hostname === "workspace" && parsed.pathname === "/summary") {
       return { kind: "workspace-summary" };
     }
@@ -562,6 +605,18 @@ function jsonResource(uri: string, data: unknown): ReadResourceResult {
         uri,
         mimeType: "application/json",
         text: JSON.stringify(data, null, 2),
+      },
+    ],
+  };
+}
+
+function markdownResource(uri: string, text: string): ReadResourceResult {
+  return {
+    contents: [
+      {
+        uri,
+        mimeType: "text/markdown",
+        text,
       },
     ],
   };

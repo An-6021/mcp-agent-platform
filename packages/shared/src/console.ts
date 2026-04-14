@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   HostedSingleFileRuntimeSchema,
   WORKSPACE_CONFIG_SCHEMA_VERSION,
+  type CachedUpstreamCapabilities,
   type HostedSingleFileRuntime,
   type WorkspaceConfig,
   type UpstreamConfig,
@@ -21,6 +22,54 @@ export type SourceStatus = z.infer<typeof SourceStatusSchema>;
 export const HostedRuntimeStatusSchema = z.enum(["stopped", "starting", "running", "error"]);
 export type HostedRuntimeStatus = z.infer<typeof HostedRuntimeStatusSchema>;
 
+export const DiscoveredToolSchema = z.object({
+  name: z.string().min(1),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  inputSchema: z.unknown().optional(),
+});
+export type DiscoveredTool = z.infer<typeof DiscoveredToolSchema>;
+
+export const DiscoveredResourceSchema = z.object({
+  uri: z.string().min(1),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  mimeType: z.string().optional(),
+});
+export type DiscoveredResource = z.infer<typeof DiscoveredResourceSchema>;
+
+export const DiscoveredPromptArgumentSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  required: z.boolean().optional(),
+});
+export type DiscoveredPromptArgument = z.infer<typeof DiscoveredPromptArgumentSchema>;
+
+export const DiscoveredPromptSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  arguments: z.array(DiscoveredPromptArgumentSchema).optional(),
+});
+export type DiscoveredPrompt = z.infer<typeof DiscoveredPromptSchema>;
+
+const SourceDiscoveryFields = {
+  generatedAt: z.iso.datetime(),
+  status: z.enum(["ready", "error"]),
+  error: z.string().nullable(),
+  tools: z.array(DiscoveredToolSchema).default([]),
+  resources: z.array(DiscoveredResourceSchema).default([]),
+  prompts: z.array(DiscoveredPromptSchema).default([]),
+} satisfies z.ZodRawShape;
+
+export const SourceDiscoverySeedSchema = z.object(SourceDiscoveryFields);
+export type SourceDiscoverySeed = z.infer<typeof SourceDiscoverySeedSchema>;
+
+export const ImportedSourceDiscoverySchema = z.object({
+  sourceId: z.string().min(1).optional(),
+  ...SourceDiscoveryFields,
+});
+export type ImportedSourceDiscovery = z.infer<typeof ImportedSourceDiscoverySchema>;
+
 const BaseSourceSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -31,6 +80,7 @@ const BaseSourceSchema = z.object({
   lastRefreshedAt: z.iso.datetime().nullable().default(null),
   status: SourceStatusSchema.default("unknown"),
   lastError: z.string().nullable().default(null),
+  seedDiscovery: SourceDiscoverySeedSchema.nullable().default(null),
 });
 
 export const RemoteHttpSourceConfigSchema = z.object({
@@ -92,44 +142,9 @@ export const SourceSchema = z.discriminatedUnion("kind", [
 ]);
 export type Source = z.infer<typeof SourceSchema>;
 
-export const DiscoveredToolSchema = z.object({
-  name: z.string().min(1),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  inputSchema: z.unknown().optional(),
-});
-export type DiscoveredTool = z.infer<typeof DiscoveredToolSchema>;
-
-export const DiscoveredResourceSchema = z.object({
-  uri: z.string().min(1),
-  name: z.string().optional(),
-  description: z.string().optional(),
-  mimeType: z.string().optional(),
-});
-export type DiscoveredResource = z.infer<typeof DiscoveredResourceSchema>;
-
-export const DiscoveredPromptArgumentSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  required: z.boolean().optional(),
-});
-export type DiscoveredPromptArgument = z.infer<typeof DiscoveredPromptArgumentSchema>;
-
-export const DiscoveredPromptSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  arguments: z.array(DiscoveredPromptArgumentSchema).optional(),
-});
-export type DiscoveredPrompt = z.infer<typeof DiscoveredPromptSchema>;
-
 export const SourceDiscoverySchema = z.object({
   sourceId: z.string().min(1),
-  generatedAt: z.iso.datetime(),
-  status: z.enum(["ready", "error"]),
-  error: z.string().nullable(),
-  tools: z.array(DiscoveredToolSchema).default([]),
-  resources: z.array(DiscoveredResourceSchema).default([]),
-  prompts: z.array(DiscoveredPromptSchema).default([]),
+  ...SourceDiscoveryFields,
 });
 export type SourceDiscovery = z.infer<typeof SourceDiscoverySchema>;
 
@@ -223,6 +238,7 @@ export const CreateSourceInputSchema = z.object({
   kind: SourceKindSchema,
   enabled: z.boolean().optional(),
   config: z.unknown(),
+  seedDiscovery: ImportedSourceDiscoverySchema.optional(),
 });
 export type CreateSourceInput = z.infer<typeof CreateSourceInputSchema>;
 
@@ -230,6 +246,7 @@ export const UpdateSourceInputSchema = z.object({
   name: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
   config: z.unknown().optional(),
+  seedDiscovery: ImportedSourceDiscoverySchema.optional(),
   status: SourceStatusSchema.optional(),
   lastRefreshedAt: z.iso.datetime().nullable().optional(),
   lastError: z.string().nullable().optional(),
@@ -268,6 +285,7 @@ export function sourceToUpstreamConfig(source: Source): UpstreamConfig {
         label: source.name,
         kind: "direct-http",
         enabled: source.enabled,
+        cachedCapabilities: null,
         url: source.config.endpoint,
         headers: source.config.headers,
       };
@@ -277,6 +295,7 @@ export function sourceToUpstreamConfig(source: Source): UpstreamConfig {
         label: source.name,
         kind: "local-stdio",
         enabled: source.enabled,
+        cachedCapabilities: null,
         command: source.config.command,
         cwd: source.config.cwd,
         env: source.config.env,
@@ -289,6 +308,7 @@ export function sourceToUpstreamConfig(source: Source): UpstreamConfig {
         label: source.name,
         kind: "hosted-npm",
         enabled: source.enabled,
+        cachedCapabilities: null,
         packageName: source.config.packageName,
         packageVersion: source.config.packageVersion,
         binName: source.config.binName,
@@ -304,6 +324,7 @@ export function sourceToUpstreamConfig(source: Source): UpstreamConfig {
         label: source.name,
         kind: "hosted-single-file",
         enabled: source.enabled,
+        cachedCapabilities: null,
         fileName: source.config.fileName,
         runtime: source.config.runtime,
         source: source.config.source,
@@ -323,11 +344,52 @@ export function buildWorkspaceConfigFromSources(input: {
 }): WorkspaceConfig {
   return {
     schemaVersion: WORKSPACE_CONFIG_SCHEMA_VERSION,
-    workspaceId: input.workspaceId ?? "default",
-    displayName: input.displayName ?? "MCP Console",
+    workspaceId: input.workspaceId ?? "mcp-hub",
+    displayName: input.displayName ?? "mcp-hub",
     generatedAt: new Date().toISOString(),
     cacheTtlSeconds: 300,
     upstreams: input.sources.filter((source) => source.enabled).map(sourceToUpstreamConfig),
+  };
+}
+
+export function buildCachedCapabilities(discovery: SourceDiscovery | null, exposures: ToolExposure[]): CachedUpstreamCapabilities | null {
+  if (!discovery) return null;
+
+  return {
+    generatedAt: discovery.generatedAt,
+    status: discovery.status,
+    error: discovery.error,
+    tools: discovery.tools.map((tool) => ({
+      name: tool.name,
+      title: tool.title,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    })),
+    resources: discovery.resources.map((resource) => ({
+      uri: resource.uri,
+      name: resource.name,
+      description: resource.description,
+      mimeType: resource.mimeType,
+    })),
+    prompts: discovery.prompts.map((prompt) => ({
+      name: prompt.name,
+      description: prompt.description,
+      arguments: prompt.arguments?.map((argument) => ({
+        name: argument.name,
+        description: argument.description,
+        required: argument.required,
+      })),
+    })),
+    toolExposures: exposures
+      .filter((item) => item.sourceId === discovery.sourceId)
+      .sort((left, right) => left.order - right.order || left.exposedName.localeCompare(right.exposedName))
+      .map((item) => ({
+        originalName: item.originalName,
+        exposedName: item.exposedName,
+        enabled: item.enabled,
+        order: item.order,
+        strategy: item.strategy,
+      })),
   };
 }
 

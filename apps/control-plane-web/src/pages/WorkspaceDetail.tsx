@@ -145,12 +145,6 @@ export function WorkspaceDetail() {
     enabled: !!id,
   });
 
-  const { data: publishedConfig } = useQuery({
-    queryKey: ["publishedConfig", id],
-    queryFn: () => api.getPublishedConfig(id!),
-    enabled: !!id,
-  });
-
   if (isLoading) {
     return <p className="text-gray-500">加载中...</p>;
   }
@@ -159,7 +153,7 @@ export function WorkspaceDetail() {
     return <p className="text-red-500">未找到服务。</p>;
   }
 
-  const { workspace, draft, tokens } = data;
+  const { workspace, draft, publishedConfig, tokens } = data;
   const hasActiveToken = tokens.some((token) => !token.revokedAt);
   const effectiveDisplayName = publishedConfig?.displayName ?? draft?.displayName ?? workspace.displayName;
   const effectiveCacheTtl = publishedConfig?.cacheTtlSeconds ?? draft?.cacheTtlSeconds ?? workspace.cacheTtlSeconds;
@@ -174,7 +168,6 @@ export function WorkspaceDetail() {
   };
   const clientSnippetCount = buildClientConfigSnippets({
     workspaceId: workspace.id,
-    hasToken: hasActiveToken,
   }).length;
 
   return (
@@ -201,7 +194,7 @@ export function WorkspaceDetail() {
         }
       />
 
-      <ClientConfigSection workspaceId={workspace.id} tokens={tokens} />
+      <ClientConfigSection workspaceId={workspace.id} />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
         <div className="space-y-5">

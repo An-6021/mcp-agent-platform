@@ -210,7 +210,7 @@ export class HostedProcessManager {
     const child = spawn(resolvedCmd, args, {
       env,
       cwd: launch.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       detached: false,
     });
 
@@ -345,6 +345,36 @@ export class HostedProcessManager {
   async shutdownAll(): Promise<void> {
     const ids = [...this.processes.keys()];
     await Promise.all(ids.map((id) => this.stop(id)));
+  }
+
+  async startAutoStartSources(): Promise<{
+    total: number;
+    started: number;
+    failed: number;
+    results: Array<{ sourceId: string; status: "started" | "failed"; error?: string }>;
+  }> {
+    const sources = (await this.repo.listSources()).filter(
+      (source) => source.enabled && this.getAutoStart(source) && (source.kind === "hosted-npm" || source.kind === "hosted-single-file"),
+    );
+
+    const results: Array<{ sourceId: string; status: "started" | "failed"; error?: string }> = [];
+
+    for (const source of sources) {
+      try {
+        await this.start(source);
+        results.push({ sourceId: source.id, status: "started" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        results.push({ sourceId: source.id, status: "failed", error: message });
+      }
+    }
+
+    return {
+      total: sources.length,
+      started: results.filter((item) => item.status === "started").length,
+      failed: results.filter((item) => item.status === "failed").length,
+      results,
+    };
   }
 
   // ── 内部方法 ────────────────────────────────────────────────────

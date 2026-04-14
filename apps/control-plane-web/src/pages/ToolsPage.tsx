@@ -227,7 +227,7 @@ export function ToolsPage() {
             {allItems.length === 0 ? "暂无工具" : "无匹配结果"}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="table-scroll">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-[#eaeaea]">

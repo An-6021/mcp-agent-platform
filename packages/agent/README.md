@@ -1,4 +1,4 @@
-# mcp-agent-platform
+# mcp-hub agent
 
 一个面向 AI 编码工具的本地 MCP agent。
 
@@ -17,13 +17,27 @@
 ## 安装
 
 ```bash
-npm install -g mcp-agent-platform
+npm install -g mcp-hub
 ```
 
 或直接使用：
 
 ```bash
-npx mcp-agent-platform --base-url https://api.example.com --workspace demo --token-env MCP_AGENT_TOKEN
+npx mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+```
+
+如果是给 Codex 接入，推荐直接使用 Codex 官方支持的 `stdio` 配置：
+
+```bash
+codex mcp add mcp-hub -- npx -y mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+```
+
+或写入 `~/.codex/config.toml`：
+
+```toml
+[mcp_servers."mcp-hub"]
+command = "npx"
+args = ["-y", "mcp-hub", "--base-url", "https://mcp.a1yu.com", "--workspace", "mcp-hub", "--token", "your-token"]
 ```
 
 ## 用法
@@ -31,20 +45,20 @@ npx mcp-agent-platform --base-url https://api.example.com --workspace demo --tok
 推荐方式一：
 
 ```bash
-mcp-agent-platform --base-url https://api.example.com --workspace demo --token-env MCP_AGENT_TOKEN
+mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
 ```
 
 推荐方式二：
 
 ```bash
-mcp-agent-platform --config-url https://api.example.com/v1/workspaces/demo/config --workspace demo --token-env MCP_AGENT_TOKEN
+mcp-hub --config-url https://mcp.a1yu.com/v1/workspaces/mcp-hub/config --workspace mcp-hub --token your-token
 ```
 
 ## 参数
 
 - `--base-url`
-  - 控制面基础地址，例如 `https://api.example.com`
-  - agent 会自动拼成 `https://api.example.com/v1/workspaces/<workspace>/config`
+  - 控制面基础地址，例如 `https://mcp.a1yu.com`
+  - agent 会自动拼成 `https://mcp.a1yu.com/v1/workspaces/<workspace>/config`
 - `--config-url`
   - 完整配置地址，优先级高于基础地址模式
 - `--workspace`

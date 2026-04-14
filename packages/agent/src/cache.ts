@@ -13,7 +13,7 @@ export type CachePaths = {
 };
 
 export function resolveCachePaths(workspaceId: string, cacheDir?: string): CachePaths {
-  const baseDir = cacheDir ?? path.join(os.homedir(), ".mcp-agent-platform");
+  const baseDir = cacheDir ?? path.join(os.homedir(), ".mcp-hub");
   return {
     baseDir,
     cacheFile: path.join(baseDir, `${workspaceId}.json`),
@@ -41,4 +41,3 @@ export async function writeCachedWorkspaceConfig(
   };
   await writeFile(cacheFile, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
-

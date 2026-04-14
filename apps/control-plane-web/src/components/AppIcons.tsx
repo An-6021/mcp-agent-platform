@@ -17,7 +17,9 @@ import {
   Check as CheckIcon,
   Save as SaveIcon,
   Key as KeyIcon,
-  Wrench as BuildIcon
+  Wrench as BuildIcon,
+  Pencil as EditIcon,
+  Upload as UploadIcon,
 } from "lucide-react";
 
 export {
@@ -39,5 +41,7 @@ export {
   CheckIcon,
   SaveIcon,
   KeyIcon,
-  BuildIcon
+  BuildIcon,
+  EditIcon,
+  UploadIcon,
 };

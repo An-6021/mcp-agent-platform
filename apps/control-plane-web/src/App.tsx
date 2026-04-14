@@ -94,7 +94,7 @@ export function App() {
         {/* 顶部边框线 */}
         <header className="border-b border-[#eaeaea]">
           <div className="mx-auto flex h-12 max-w-[1100px] items-center px-4 sm:px-6">
-            <span className="text-[14px] font-semibold text-[#111] tracking-tight">MCP Platform</span>
+            <span className="text-[14px] font-semibold text-[#111] tracking-tight">mcp-hub</span>
           </div>
         </header>
 

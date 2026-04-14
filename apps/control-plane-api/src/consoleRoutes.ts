@@ -193,6 +193,43 @@ function toDiscovery(source: Source, result: Awaited<ReturnType<typeof inspectWo
   };
 }
 
+export function mergeDiscoveryWithPrevious(discovery: SourceDiscovery, previous: SourceDiscovery | null): SourceDiscovery {
+  if (!previous || discovery.status !== "error") {
+    return discovery;
+  }
+
+  return {
+    ...discovery,
+    tools: previous.tools,
+    resources: previous.resources,
+    prompts: previous.prompts,
+  };
+}
+
+async function refreshSourceDiscovery(repo: ConsoleRepository, source: Source) {
+  const previousDiscovery = await repo.getDiscovery(source.id);
+  const config = buildWorkspaceConfigFromSources({
+    sources: [source],
+    workspaceId: source.id,
+    displayName: source.name,
+  });
+  const inspection = await inspectWorkspaceCapabilities(config);
+  const discovery = mergeDiscoveryWithPrevious(toDiscovery(source, inspection), previousDiscovery);
+
+  await repo.saveDiscovery(discovery);
+  const sourceStatus = discovery.status === "error"
+    ? (discovery.error && isNetworkError(new Error(discovery.error)) ? "offline" as const : "error" as const)
+    : "ready" as const;
+  const refreshedSource = await repo.updateSource(source.id, {
+    status: sourceStatus,
+    lastRefreshedAt: discovery.generatedAt,
+    lastError: discovery.error,
+  });
+  const exposureChanges = await ensureDiscoveryExposures(repo, refreshedSource, discovery);
+
+  return { source: refreshedSource, discovery, exposureChanges };
+}
+
 async function appendSystemLog(repo: ConsoleRepository, sourceId: string, message: string) {
   const entry: LogEntry = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -308,26 +345,7 @@ export function registerConsoleRoutes(server: FastifyInstance, options: { repo: 
     }
 
     try {
-      const config = buildWorkspaceConfigFromSources({
-        sources: [source],
-        workspaceId: source.id,
-        displayName: source.name,
-      });
-      const inspection = await inspectWorkspaceCapabilities(config);
-      const discovery = toDiscovery(source, inspection);
-
-      await repo.saveDiscovery(discovery);
-      const sourceStatus = discovery.status === "error"
-        ? (discovery.error && isNetworkError(new Error(discovery.error)) ? "offline" as const : "error" as const)
-        : "ready" as const;
-      const refreshedSource = await repo.updateSource(source.id, {
-        status: sourceStatus,
-        lastRefreshedAt: discovery.generatedAt,
-        lastError: discovery.error,
-      });
-      const exposureChanges = await ensureDiscoveryExposures(repo, refreshedSource, discovery);
-
-      return ok({ source: refreshedSource, discovery, exposureChanges });
+      return ok(await refreshSourceDiscovery(repo, source));
     } catch (error) {
       const errorStatus = isNetworkError(error) ? "offline" as const : "error" as const;
       await repo.updateSource(source.id, {
@@ -340,6 +358,29 @@ export function registerConsoleRoutes(server: FastifyInstance, options: { repo: 
     }
   });
 
+  server.post("/admin/sources/:sourceId/snapshot", async (request, reply) => {
+    const { sourceId } = request.params as { sourceId: string };
+    const source = await repo.getSource(sourceId);
+    if (!source) {
+      reply.code(404);
+      return fail("source_not_found", `Source \"${sourceId}\" not found`);
+    }
+
+    try {
+      reply.type("application/json");
+      return (await refreshSourceDiscovery(repo, source)).discovery;
+    } catch (error) {
+      const errorStatus = isNetworkError(error) ? "offline" as const : "error" as const;
+      await repo.updateSource(source.id, {
+        status: errorStatus,
+        lastRefreshedAt: new Date().toISOString(),
+        lastError: (error as Error).message,
+      }).catch(() => {});
+      reply.code(500);
+      return fail("source_snapshot_failed", (error as Error).message);
+    }
+  });
+
   // 批量刷新所有已启用 source 的能力
   server.post("/admin/sources/refresh-all", async () => {
     const sources = await repo.listSources();
@@ -348,26 +389,8 @@ export function registerConsoleRoutes(server: FastifyInstance, options: { repo: 
 
     for (const source of enabledSources) {
       try {
-        const config = buildWorkspaceConfigFromSources({
-          sources: [source],
-          workspaceId: source.id,
-          displayName: source.name,
-        });
-        const inspection = await inspectWorkspaceCapabilities(config);
-        const discovery = toDiscovery(source, inspection);
-
-        await repo.saveDiscovery(discovery);
-        const sourceStatus = discovery.status === "error"
-          ? (discovery.error && isNetworkError(new Error(discovery.error)) ? "offline" as const : "error" as const)
-          : "ready" as const;
-        await repo.updateSource(source.id, {
-          status: sourceStatus,
-          lastRefreshedAt: discovery.generatedAt,
-          lastError: discovery.error,
-        });
-        await ensureDiscoveryExposures(repo, source, discovery);
-
-        results.push({ sourceId: source.id, status: "ok", toolCount: discovery.tools.length });
+        const refreshed = await refreshSourceDiscovery(repo, source);
+        results.push({ sourceId: source.id, status: "ok", toolCount: refreshed.discovery.tools.length });
       } catch (error) {
         const errorStatus = isNetworkError(error) ? "offline" as const : "error" as const;
         await repo.updateSource(source.id, {
@@ -630,5 +653,62 @@ export function registerConsoleRoutes(server: FastifyInstance, options: { repo: 
     const { limit } = request.query as { limit?: string };
     const items = await repo.listLogs(sourceId, limit ? Number.parseInt(limit, 10) : 100);
     return ok({ items });
+  });
+
+  // 批量迁移所有 hosted-npm 来源为 local-stdio（npx -y packageName）
+  server.post("/admin/migrate/hosted-npm-to-local-stdio", async () => {
+    const sources = await repo.listSources();
+    const npmSources = sources.filter((s) => s.kind === "hosted-npm");
+
+    if (npmSources.length === 0) {
+      return ok({ migrated: 0, results: [] });
+    }
+
+    const results: Array<{ sourceId: string; status: "ok" | "error"; error?: string }> = [];
+
+    for (const source of npmSources) {
+      try {
+        const config = source.config as { packageName: string; binName?: string; args?: string[]; cwd?: string | null; env?: Record<string, string>; timeoutMs?: number };
+        // 构建 npx 命令：npx -y packageName [args...]
+        const command = ["npx", "-y", config.packageName];
+        if (config.args?.length) {
+          command.push(...config.args);
+        }
+
+        // 保留 discovery 数据
+        const discovery = await repo.getDiscovery(source.id);
+
+        // 先删后建（原子迁移），保留同一 id
+        await repo.deleteSource(source.id);
+        await repo.createSource({
+          id: source.id,
+          name: source.name,
+          kind: "local-stdio",
+          enabled: source.enabled,
+          config: {
+            command,
+            cwd: config.cwd ?? null,
+            env: config.env ?? {},
+            timeoutMs: config.timeoutMs ?? 30_000,
+          },
+          ...(source.seedDiscovery ? { seedDiscovery: { ...source.seedDiscovery, sourceId: source.id } } : {}),
+        });
+
+        // 恢复 discovery（deleteSource 会删除它）
+        if (discovery) {
+          await repo.saveDiscovery(discovery);
+        }
+
+        results.push({ sourceId: source.id, status: "ok" });
+      } catch (error) {
+        results.push({ sourceId: source.id, status: "error", error: (error as Error).message });
+      }
+    }
+
+    return ok({
+      migrated: results.filter((r) => r.status === "ok").length,
+      failed: results.filter((r) => r.status === "error").length,
+      results,
+    });
   });
 }

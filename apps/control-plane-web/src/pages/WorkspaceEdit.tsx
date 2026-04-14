@@ -16,12 +16,6 @@ export function WorkspaceEdit() {
     enabled: !!id,
   });
 
-  const { data: publishedConfig } = useQuery({
-    queryKey: ["publishedConfig", id],
-    queryFn: () => api.getPublishedConfig(id!),
-    enabled: !!id,
-  });
-
   const [displayName, setDisplayName] = useState("");
   const [cacheTtl, setCacheTtl] = useState(300);
   const [upstreams, setUpstreams] = useState<UpstreamConfig[]>([]);
@@ -35,8 +29,8 @@ export function WorkspaceEdit() {
     const workspace = data.workspace;
     setDisplayName(draft?.displayName ?? workspace.displayName);
     setCacheTtl(draft?.cacheTtlSeconds ?? workspace.cacheTtlSeconds);
-    setUpstreams(draft?.upstreams ?? publishedConfig?.upstreams ?? []);
-  }, [data, publishedConfig]);
+    setUpstreams(draft?.upstreams ?? data.publishedConfig?.upstreams ?? []);
+  }, [data]);
 
   const normalizedDisplayName = displayName.trim();
   const normalizedUpstreams = useMemo(() => upstreams.map((upstream, index) => normalizeUpstreamDraft(upstream, index)), [upstreams]);
@@ -109,7 +103,7 @@ export function WorkspaceEdit() {
         </div>
       </section>
 
-      {canShowClientConfig ? <ClientConfigSection workspaceId={data.workspace.id} tokens={data.tokens} /> : null}
+      {canShowClientConfig ? <ClientConfigSection workspaceId={data.workspace.id} /> : null}
 
       <div className="sticky bottom-4 z-20">
         <div className="surface-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">

@@ -21,9 +21,11 @@ import {
   encodeResourceUri,
   prefixName,
   splitPrefixedName,
+  type CachedUpstreamCapabilities,
   type HostedNpmUpstreamConfig,
   type HostedSingleFileUpstreamConfig,
   type LocalStdioUpstreamConfig,
+  type WorkspaceCapabilities,
   type WorkspaceUpstreamCapabilities,
   type UpstreamConfig,
 } from "@mcp-agent-platform/shared";
@@ -33,6 +35,7 @@ type RuntimeState = "disconnected" | "connecting" | "connected" | "failed";
 
 type UpstreamRuntime = {
   config: UpstreamConfig;
+  cachedCapabilities: CachedUpstreamCapabilities | null;
   client?: Client;
   transport?: StdioClientTransport | StreamableHTTPClientTransport;
   capabilities?: ServerCapabilities;
@@ -59,6 +62,7 @@ export class UpstreamManager {
       if (!upstream.enabled) continue;
       this.runtimes.set(upstream.id, {
         config: upstream,
+        cachedCapabilities: upstream.cachedCapabilities ?? null,
         state: "disconnected",
         restartCount: 0,
         backoffMs: INITIAL_BACKOFF_MS,
@@ -69,12 +73,7 @@ export class UpstreamManager {
   }
 
   async initialize(): Promise<void> {
-    await Promise.all(
-      [...this.runtimes.entries()].map(async ([upstreamId, runtime]) => {
-        if (isStdioLikeUpstream(runtime.config) && !runtime.config.autoStart) return;
-        await this.tryEnsureConnected(upstreamId);
-      }),
-    );
+    return;
   }
 
   getRuntimeCapabilities(): {
@@ -90,10 +89,10 @@ export class UpstreamManager {
       tools: { listChanged: true },
     };
 
-    if ([...this.runtimes.values()].some((runtime) => this.supportsCapability(runtime, "resources"))) {
+    if ([...this.runtimes.values()].some((runtime) => (runtime.cachedCapabilities?.resources.length ?? 0) > 0)) {
       capabilities.resources = { listChanged: true };
     }
-    if ([...this.runtimes.values()].some((runtime) => this.supportsCapability(runtime, "prompts"))) {
+    if ([...this.runtimes.values()].some((runtime) => (runtime.cachedCapabilities?.prompts.length ?? 0) > 0)) {
       capabilities.prompts = { listChanged: true };
     }
 
@@ -118,34 +117,33 @@ export class UpstreamManager {
     for (const upstreamId of this.upstreamIds) {
       const runtime = this.runtimes.get(upstreamId);
       if (!runtime) continue;
-
-      try {
-        const result = await this.executeWithConnectionRecovery(upstreamId, (client) => client.listTools());
-        for (const tool of result.tools) {
-          tools.push({ ...tool, name: prefixName(upstreamId, tool.name) });
-        }
-      } catch (error) {
-        this.markFailed(runtime, error);
+      for (const tool of getExposedTools(runtime)) {
+        tools.push({
+          name: tool.exposedName,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+        });
       }
     }
     return tools;
   }
 
   async callTool(prefixedToolName: string, args: Record<string, unknown> | undefined): Promise<CallToolResult> {
-    const split = splitPrefixedName(prefixedToolName);
-    if (!split) return toolError(`无效的工具名：${prefixedToolName}`);
+    const target = this.resolveToolTarget(prefixedToolName);
+    if (!target) return toolError(`无效的工具名：${prefixedToolName}`);
+    if (target.conflict) return toolError(`工具名冲突：${prefixedToolName}`);
 
-    const runtime = this.runtimes.get(split.upstreamId);
-    if (!runtime) return toolError(`未知上游：${split.upstreamId}`);
+    const runtime = this.runtimes.get(target.upstreamId);
+    if (!runtime) return toolError(`未知上游：${target.upstreamId}`);
 
     try {
-      const result = await this.executeWithConnectionRecovery(split.upstreamId, (client) =>
+      const result = await this.executeWithConnectionRecovery(target.upstreamId, (client) =>
         client.callTool({
-          name: split.name,
+          name: target.name,
           arguments: args ?? {},
         }),
       );
-      return mapToolResultUris(split.upstreamId, result);
+      return mapToolResultUris(target.upstreamId, result);
     } catch (error) {
       this.markFailed(runtime, error);
       return toolError(error instanceof Error ? error.message : String(error));
@@ -157,18 +155,8 @@ export class UpstreamManager {
     for (const upstreamId of this.upstreamIds) {
       const runtime = this.runtimes.get(upstreamId);
       if (!runtime) continue;
-      if (this.hasKnownMissingCapability(runtime, "resources")) continue;
-
-      try {
-        await this.ensureConnected(upstreamId);
-        if (!this.supportsCapability(runtime, "resources")) continue;
-        const result = await this.executeWithConnectionRecovery(upstreamId, (client) => client.listResources());
-        for (const resource of result.resources) {
-          resources.push({ ...resource, uri: encodeResourceUri(upstreamId, resource.uri) });
-        }
-      } catch (error) {
-        if (this.handleOptionalCapabilityError(runtime, "resources", error)) continue;
-        this.markFailed(runtime, error);
+      for (const resource of runtime.cachedCapabilities?.resources ?? []) {
+        resources.push({ ...resource, uri: encodeResourceUri(upstreamId, resource.uri) });
       }
     }
     return resources;
@@ -213,18 +201,8 @@ export class UpstreamManager {
     for (const upstreamId of this.upstreamIds) {
       const runtime = this.runtimes.get(upstreamId);
       if (!runtime) continue;
-      if (this.hasKnownMissingCapability(runtime, "prompts")) continue;
-
-      try {
-        await this.ensureConnected(upstreamId);
-        if (!this.supportsCapability(runtime, "prompts")) continue;
-        const result = await this.executeWithConnectionRecovery(upstreamId, (client) => client.listPrompts());
-        for (const prompt of result.prompts) {
-          prompts.push({ ...prompt, name: prefixName(upstreamId, prompt.name) });
-        }
-      } catch (error) {
-        if (this.handleOptionalCapabilityError(runtime, "prompts", error)) continue;
-        this.markFailed(runtime, error);
+      for (const prompt of runtime.cachedCapabilities?.prompts ?? []) {
+        prompts.push({ ...prompt, name: prefixName(upstreamId, prompt.name) });
       }
     }
     return prompts;
@@ -343,6 +321,81 @@ export class UpstreamManager {
     return snapshots;
   }
 
+  getCachedWorkspaceCapabilities(): WorkspaceCapabilities {
+    return {
+      workspaceId: "runtime",
+      generatedAt: getLatestCachedGeneratedAt([...this.runtimes.values()], new Date().toISOString()),
+      upstreams: this.upstreamIds.flatMap((upstreamId) => {
+        const runtime = this.runtimes.get(upstreamId);
+        if (!runtime) return [];
+
+        const cached = runtime.cachedCapabilities;
+        return [
+          {
+            upstreamId,
+            upstreamLabel: runtime.config.label,
+            upstreamKind: runtime.config.kind,
+            status: cached?.status ?? "ready",
+            error: cached?.error ?? undefined,
+            tools: (cached?.tools ?? []).map((tool) => ({
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+            })),
+            resources: (cached?.resources ?? []).map((resource) => ({
+              name: resource.name ?? resource.uri,
+              uri: resource.uri,
+              description: resource.description,
+              mimeType: resource.mimeType,
+            })),
+            prompts: (cached?.prompts ?? []).map((prompt) => ({
+              name: prompt.name,
+              description: prompt.description,
+              arguments: prompt.arguments?.map((item) => ({
+                name: item.name,
+                description: item.description,
+                required: item.required,
+              })),
+            })),
+            toolCount: cached?.tools.length ?? 0,
+            resourceCount: cached?.resources.length ?? 0,
+            promptCount: cached?.prompts.length ?? 0,
+          } satisfies WorkspaceUpstreamCapabilities,
+        ];
+      }),
+    };
+  }
+
+  private resolveToolTarget(toolName: string): ResolvedToolTarget | null {
+    let matched: ResolvedToolTarget | null = null;
+
+    for (const runtime of this.runtimes.values()) {
+      for (const tool of getExposedTools(runtime)) {
+        if (tool.exposedName !== toolName) continue;
+        if (matched) {
+          return {
+            upstreamId: runtime.config.id,
+            name: tool.originalName,
+            conflict: true,
+          };
+        }
+        matched = {
+          upstreamId: runtime.config.id,
+          name: tool.originalName,
+        };
+      }
+    }
+
+    if (matched) return matched;
+
+    const split = splitPrefixedName(toolName);
+    if (!split) return null;
+    return {
+      upstreamId: split.upstreamId,
+      name: split.name,
+    };
+  }
+
   private async tryEnsureConnected(upstreamId: string): Promise<Client | null> {
     try {
       return await this.ensureConnected(upstreamId);
@@ -388,8 +441,6 @@ export class UpstreamManager {
       runtime.client = undefined;
       runtime.transport = undefined;
       runtime.state = "disconnected";
-      if (runtime.suppressReconnect) return;
-      this.scheduleReconnect(runtime, upstreamId);
     };
     client.onerror = (error) => {
       runtime.lastError = error.message;
@@ -502,6 +553,56 @@ export class UpstreamManager {
       if (suppressReconnect) runtime.suppressReconnect = previousSuppressReconnect;
     }
   }
+}
+
+type ResolvedToolTarget =
+  | { upstreamId: string; name: string; conflict?: false }
+  | { upstreamId: string; name: string; conflict: true };
+
+type ExposedToolEntry = {
+  originalName: string;
+  exposedName: string;
+  description?: string;
+  inputSchema?: unknown;
+};
+
+function getExposedTools(runtime: UpstreamRuntime): ExposedToolEntry[] {
+  const cached = runtime.cachedCapabilities;
+  if (!cached) return [];
+
+  const toolsByName = new Map(cached.tools.map((tool) => [tool.name, tool]));
+  if (cached.toolExposures.length > 0) {
+    return cached.toolExposures
+      .filter((exposure) => exposure.enabled)
+      .sort((left, right) => left.order - right.order || left.exposedName.localeCompare(right.exposedName))
+      .flatMap((exposure) => {
+        const tool = toolsByName.get(exposure.originalName);
+        if (!tool) return [];
+        return [
+          {
+            originalName: tool.name,
+            exposedName: exposure.exposedName,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+          },
+        ];
+      });
+  }
+
+  return cached.tools.map((tool) => ({
+    originalName: tool.name,
+    exposedName: prefixName(runtime.config.id, tool.name),
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+  }));
+}
+
+function getLatestCachedGeneratedAt(runtimes: UpstreamRuntime[], fallback: string): string {
+  const timestamps = runtimes
+    .map((runtime) => runtime.cachedCapabilities?.generatedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  return timestamps.at(-1) ?? fallback;
 }
 
 async function createClientTransport(config: UpstreamConfig): Promise<StdioClientTransport | StreamableHTTPClientTransport> {

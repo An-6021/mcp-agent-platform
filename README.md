@@ -1,6 +1,6 @@
-# MCP Agent Platform
+# mcp-hub
 
-一个从 0 开始的新项目，目标是把旧版桌面式 MCP Hub 收敛成两层：
+一个从 0 开始的新项目，目标是把旧版桌面式控制台收敛成两层：
 
 - 本地 `stdio agent`：只向 AI 工具暴露一个 MCP 入口
 - 远程 `control plane`：负责 MCP 来源配置、工具暴露编排和部分托管能力
@@ -103,32 +103,46 @@ pnpm dev:web
 手动启动本地 agent：
 
 ```bash
-pnpm --filter @mcp-agent-platform/agent exec mcp-agent-platform \
-  --base-url http://127.0.0.1:3100 \
-  --workspace demo \
-  --token demo-token
+pnpm --filter ./packages/agent exec mcp-hub \
+  --base-url https://mcp.a1yu.com \
+  --workspace mcp-hub \
+  --token your-token
+```
+
+按 Codex 官方习惯接入，优先使用本地 `stdio` agent：
+
+```bash
+codex mcp add mcp-hub -- npx -y mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+```
+
+对应的 `~/.codex/config.toml` 可写成：
+
+```toml
+[mcp_servers."mcp-hub"]
+command = "npx"
+args = ["-y", "mcp-hub", "--base-url", "https://mcp.a1yu.com", "--workspace", "mcp-hub", "--token", "your-token"]
 ```
 
 如果后续要发布成 npm 包，推荐优先使用这两种接入方式：
 
 ```bash
-npx mcp-agent-platform --base-url https://api.example.com --workspace demo --token-env MCP_AGENT_TOKEN
+npx mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
 ```
 
 ```bash
-npx mcp-agent-platform --config-url https://api.example.com/v1/workspaces/demo/config --workspace demo --token-env MCP_AGENT_TOKEN
+npx mcp-hub --config-url https://mcp.a1yu.com/v1/workspaces/mcp-hub/config --workspace mcp-hub --token your-token
 ```
 
 这里的 `base-url` 指“控制面 API 的根地址”，不是某个 MCP 服务地址。
 
 例如：
 
-- `--base-url https://api.example.com`
-- `--workspace demo`
+- `--base-url https://mcp.a1yu.com`
+- `--workspace mcp-hub`
 
 agent 最终会请求：
 
-- `https://api.example.com/v1/workspaces/demo/config`
+- `https://mcp.a1yu.com/v1/workspaces/mcp-hub/config`
 
 ## 当前已有能力
 

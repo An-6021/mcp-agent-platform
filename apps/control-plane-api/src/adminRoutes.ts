@@ -99,8 +99,9 @@ export function registerAdminRoutes(server: FastifyInstance, options: AdminRoute
       return fail("workspace_not_found", `Workspace "${id}" not found`);
     }
     const draft = await repo.getDraft(id);
+    const publishedConfig = await repo.getPublishedConfig(id);
     const tokens = await repo.listTokens(id);
-    return ok({ workspace, draft, tokens });
+    return ok({ workspace, draft, publishedConfig, tokens });
   });
 
   server.get("/admin/workspaces/:id/capabilities", async (request, reply) => {

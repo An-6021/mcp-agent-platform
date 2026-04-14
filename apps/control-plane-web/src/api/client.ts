@@ -89,6 +89,7 @@ export type PublishedConfigSnapshot = {
 export type WorkspaceDetail = {
   workspace: Workspace;
   draft: WorkspaceDraft | null;
+  publishedConfig: PublishedWorkspaceConfig | null;
   tokens: TokenMeta[];
 };
 

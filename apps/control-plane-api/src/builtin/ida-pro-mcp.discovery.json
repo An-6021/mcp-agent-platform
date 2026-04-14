@@ -1,0 +1,299 @@
+{
+  "sourceId": "ida-pro-mcp",
+  "generatedAt": "2026-04-13T00:00:00.000Z",
+  "status": "error",
+  "error": "fetch failed",
+  "tools": [
+    {
+      "name": "decompile",
+      "description": "Decompile function(s) at address(es); returns pseudocode and per-item errors."
+    },
+    {
+      "name": "disasm",
+      "description": "Disassemble function with offset/max_instructions pagination and optional total count."
+    },
+    {
+      "name": "func_profile",
+      "description": "Profile functions with summary metrics and optional sampled details."
+    },
+    {
+      "name": "analyze_batch",
+      "description": "Run comprehensive analysis over one or more target functions."
+    },
+    {
+      "name": "xrefs_to",
+      "description": "Return xrefs to address(es) or named symbols, capped per target with truncation flag."
+    },
+    {
+      "name": "xref_query",
+      "description": "Query xrefs with direction/type filters and pagination."
+    },
+    {
+      "name": "xrefs_to_field",
+      "description": "Get cross-references to structure fields"
+    },
+    {
+      "name": "callees",
+      "description": "Return unique callees per function, capped by limit."
+    },
+    {
+      "name": "find_bytes",
+      "description": "Search byte patterns (supports ??) with offset/limit pagination."
+    },
+    {
+      "name": "basic_blocks",
+      "description": "Return function CFG blocks with offset/max_blocks pagination."
+    },
+    {
+      "name": "find",
+      "description": "Search strings/immediates/refs for targets with offset/limit pagination."
+    },
+    {
+      "name": "insn_query",
+      "description": "Query instructions with mnemonic/operand filters and scoped scans."
+    },
+    {
+      "name": "export_funcs",
+      "description": "Export function data for addresses in json/c_header/prototypes formats."
+    },
+    {
+      "name": "callgraph",
+      "description": "Build bounded callgraph from roots with depth/node/edge limits."
+    },
+    {
+      "name": "analyze_function",
+      "description": "Compact single-function analysis: pseudocode, strings, constants, callers, callees, xrefs, blocks."
+    },
+    {
+      "name": "analyze_component",
+      "description": "Analyze related functions as a group: per-function summaries, internal call graph, shared data."
+    },
+    {
+      "name": "diff_before_after",
+      "description": "Rename a function, set its type, or add a comment, and immediately see the\nbefore/after decompilation side by side. Use this instead of calling rename\nthen decompile separately when you want to verify that a rename or type change\nactually improved readability. Actions: 'rename_func' (action_args: {name: str}),\n'set_type' (action_args: {type: str}), 'set_comment' (action_args: {comment: str}).\nReturns {before, after, action_applied, changes_detected}. Especially useful\nduring batch renaming to confirm each change had the intended effect."
+    },
+    {
+      "name": "trace_data_flow",
+      "description": "Follow cross-references from or to an address, automatically traversing\nmultiple hops. Use 'forward' to see where data flows TO (xrefs-from), or\n'backward' to see where data flows FROM (xrefs-to). At each node in the\ntraversal, returns the function name, instruction, and whether it's code or\ndata. Use this when you find an interesting string, constant, or global and\nwant to understand every code path that touches it without manually chaining\nxrefs_to calls. Do not use for call graph traversal - use callgraph for that.\nmax_depth controls how many hops to follow (default 5, max 20)."
+    },
+    {
+      "name": "server_health",
+      "description": "Health/ready probe for MCP server and current IDB state."
+    },
+    {
+      "name": "server_warmup",
+      "description": "Warm up IDA subsystems to reduce first-call latency and transient failures."
+    },
+    {
+      "name": "lookup_funcs",
+      "description": "Get functions by address or name (auto-detects)"
+    },
+    {
+      "name": "int_convert",
+      "description": "Convert numbers to different formats"
+    },
+    {
+      "name": "list_funcs",
+      "description": "List functions with optional filtering and offset/count pagination."
+    },
+    {
+      "name": "func_query",
+      "description": "Query functions with richer filtering than list_funcs."
+    },
+    {
+      "name": "list_globals",
+      "description": "List globals with optional filtering and offset/count pagination."
+    },
+    {
+      "name": "entity_query",
+      "description": "Query IDB entities with typed filters, projection, and pagination."
+    },
+    {
+      "name": "imports",
+      "description": "List imports with module names using offset/count pagination."
+    },
+    {
+      "name": "imports_query",
+      "description": "Query imports with richer filtering than imports(offset,count)."
+    },
+    {
+      "name": "idb_save",
+      "description": "Save active IDB to disk, optionally to a provided path."
+    },
+    {
+      "name": "find_regex",
+      "description": "Search strings by case-insensitive regex with offset/limit pagination."
+    },
+    {
+      "name": "list_instances",
+      "description": "List all discovered IDA Pro instances with their binary name, port, and reachability status.\n\nUse this to see which IDA databases are currently open and available for analysis.\nThe 'active' field indicates which instance is currently handling your tool calls."
+    },
+    {
+      "name": "select_instance",
+      "description": "Switch to a different IDA Pro instance. All subsequent tool calls will be\nrouted to the selected instance. Use list_instances to see available instances.\n\nTo switch back to this instance, call select_instance with this instance's port,\nor call select_instance with port=0 to reset."
+    },
+    {
+      "name": "open_file",
+      "description": "Open a file in a new IDA Pro instance.\n\nLaunches a new IDA process for the given binary. If an existing IDB/i64 database\nis found, opens that directly (skips the packed/unpacked dialog). Use new_database=True\nto force a fresh analysis. Use autonomous=True to suppress all IDA dialogs.\n\nIf switch=True (default), automatically routes subsequent tool calls to the new instance."
+    },
+    {
+      "name": "get_bytes",
+      "description": "Read bytes from memory addresses"
+    },
+    {
+      "name": "get_int",
+      "description": "Read integer values from memory addresses"
+    },
+    {
+      "name": "get_string",
+      "description": "Read strings from memory addresses"
+    },
+    {
+      "name": "get_global_value",
+      "description": "Read global variable values by address or symbol name."
+    },
+    {
+      "name": "patch",
+      "description": "Patch bytes at memory addresses with hex data"
+    },
+    {
+      "name": "put_int",
+      "description": "Write integer values to memory addresses"
+    },
+    {
+      "name": "set_comments",
+      "description": "Set comments at addresses (both disassembly and decompiler views)"
+    },
+    {
+      "name": "append_comments",
+      "description": "Append comments at addresses, deduping exact text by default."
+    },
+    {
+      "name": "patch_asm",
+      "description": "Patch assembly instructions at addresses"
+    },
+    {
+      "name": "rename",
+      "description": "Batch-rename funcs/globals/locals/stack vars with dry-run options."
+    },
+    {
+      "name": "define_func",
+      "description": "Define functions; IDA infers bounds unless end is provided."
+    },
+    {
+      "name": "define_code",
+      "description": "Convert bytes to code instruction(s) at address(es)."
+    },
+    {
+      "name": "undefine",
+      "description": "Undefine item(s) at address(es), converting back to raw bytes."
+    },
+    {
+      "name": "py_eval",
+      "description": "Execute Python in IDA context and return result/stdout/stderr."
+    },
+    {
+      "name": "py_exec_file",
+      "description": "Execute a Python script file in IDA context and return stdout/stderr.\n\nUnlike py_eval, this runs the entire file with exec() using a single shared\nglobals dict (no locals split), so top-level definitions are visible to all\ncode in the script. Handles large scripts that would be unwieldy as inline code."
+    },
+    {
+      "name": "stack_frame",
+      "description": "Return stack variables for function address(es)."
+    },
+    {
+      "name": "declare_stack",
+      "description": "Create stack variables from typed stack declarations."
+    },
+    {
+      "name": "delete_stack",
+      "description": "Delete stack variables by name or offset."
+    },
+    {
+      "name": "survey_binary",
+      "description": "Get a compact overview of the binary in one call. Returns file metadata,\nsegment layout, entry points, statistics, top 15 strings and functions ranked\nby xref count (functions include classification: thunk/wrapper/leaf/dispatcher/\ncomplex), imports by category, and call graph summary. Use this as your FIRST\ntool call when starting analysis. Do not call list_funcs, imports, or find_regex\nseparately for triage - this returns all of that. Use detail_level='minimal'\nfor binaries with >10k functions."
+    },
+    {
+      "name": "declare_type",
+      "description": "Declare C type definitions in local type library."
+    },
+    {
+      "name": "enum_upsert",
+      "description": "Create or extend local enums in an idempotent way."
+    },
+    {
+      "name": "read_struct",
+      "description": "Read struct fields from memory at address; auto-detect type when possible."
+    },
+    {
+      "name": "search_structs",
+      "description": "Search local structs/unions by name pattern."
+    },
+    {
+      "name": "type_query",
+      "description": "Query local types with structured filters/projection-friendly output."
+    },
+    {
+      "name": "type_inspect",
+      "description": "Inspect named types (size/kind/declaration/members)."
+    },
+    {
+      "name": "set_type",
+      "description": "Apply types (function/global/local/stack)"
+    },
+    {
+      "name": "type_apply_batch",
+      "description": "Apply multiple type edits and return aggregate status."
+    },
+    {
+      "name": "infer_types",
+      "description": "Infer and apply likely types at target addresses."
+    }
+  ],
+  "resources": [
+    {
+      "uri": "ida://idb/metadata",
+      "description": "Get IDB file metadata (path, arch, base address, size, hashes)"
+    },
+    {
+      "uri": "ida://idb/segments",
+      "description": "Get all memory segments with permissions"
+    },
+    {
+      "uri": "ida://idb/entrypoints",
+      "description": "Get entry points (main, TLS callbacks, etc.)"
+    },
+    {
+      "uri": "ida://cursor",
+      "description": "Get current cursor position and function"
+    },
+    {
+      "uri": "ida://selection",
+      "description": "Get current selection range (if any)"
+    },
+    {
+      "uri": "ida://types",
+      "description": "Get all local types"
+    },
+    {
+      "uri": "ida://structs",
+      "description": "Get all structures/unions"
+    },
+    {
+      "uri": "ida://struct/{name}",
+      "description": "Get structure definition with fields"
+    },
+    {
+      "uri": "ida://import/{name}",
+      "description": "Get specific import details by name"
+    },
+    {
+      "uri": "ida://export/{name}",
+      "description": "Get specific export details by name"
+    },
+    {
+      "uri": "ida://xrefs/from/{addr}",
+      "description": "Get cross-references from address"
+    }
+  ],
+  "prompts": []
+}

@@ -424,7 +424,7 @@ function QuickAddButton({ kind, onClick }: { kind: UpstreamKind; onClick: () => 
     <button
       type="button"
       onClick={onClick}
-      className="surface-card-muted group rounded-[1.5rem] p-4 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white"
+      className="surface-card-muted group rounded-lg p-4 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white"
     >
       <div className="flex items-center justify-between gap-3">
         <p className="text-base font-semibold text-slate-950">{copy.title}</p>
@@ -475,7 +475,7 @@ function UpstreamCard({
       </div>
 
       {issues.length ? (
-        <div className="mt-4 rounded-[1.25rem] border border-rose-200 bg-rose-50 px-4 py-3">
+        <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
           <p className="text-sm font-medium text-rose-700">还差一点就能保存：</p>
           <ul className="mt-2 space-y-1 text-sm text-rose-700">
             {issues.map((issue) => (
@@ -567,7 +567,7 @@ function UpstreamCard({
         </div>
       ) : null}
 
-      <div className="mt-5 space-y-4 rounded-[1.4rem] border border-slate-200 bg-slate-50 px-4 py-4">
+      <div className="mt-5 space-y-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
         <div className="grid gap-4 lg:grid-cols-2">
           <label className="block">
             <span className="field-label">名称</span>
@@ -588,7 +588,7 @@ function UpstreamCard({
           <RecordTextArea
             label="请求头"
             value={upstream.headers}
-            placeholder={`Authorization=Bearer ...\nX-Workspace=demo`}
+            placeholder={`Authorization=Bearer ...\nX-Workspace=my-workspace`}
             help=""
             onCommit={(value) => onUpdate({ headers: value })}
           />

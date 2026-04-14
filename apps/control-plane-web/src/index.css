@@ -73,6 +73,12 @@
     background: #fff;
   }
 
+  .surface-card-muted {
+    border: 1px solid #eaeaea;
+    border-radius: 8px;
+    background: #fafafa;
+  }
+
   .surface-card-code {
     border: 1px solid #333;
     border-radius: 8px;
@@ -114,6 +120,22 @@
     cursor: not-allowed;
   }
 
+  .button-ghost {
+    @apply inline-flex items-center justify-center px-3.5 py-1.5 text-[13px] font-medium transition-all active:scale-95;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #666;
+  }
+  .button-ghost:hover {
+    background: #fafafa;
+    color: #111;
+  }
+  .button-ghost:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   /* ── 表单 ─────────────────────────────────────────────────────────── */
   .field-label {
     display: block;
@@ -121,6 +143,13 @@
     font-size: 13px;
     font-weight: 500;
     color: #444;
+  }
+
+  .field-help {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #999;
+    line-height: 1.4;
   }
 
   .field-input {
@@ -263,12 +292,38 @@
     text-transform: none;
   }
 
+  /* 表格容器隐藏滚动条，避免影响布局 */
+  .table-scroll {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .table-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
   /* ── 代码块 ──────────────────────────────────────────────────────── */
   .code-block {
     @apply whitespace-pre-wrap break-words text-xs leading-6;
     color: #ededed;
     overflow-wrap: anywhere;
     word-break: break-word;
+  }
+
+  /* ── 侧抽屉 ──────────────────────────────────────────────────────── */
+  .drawer-panel {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    padding: 32px;
+    background: #fff;
+    border-left: 1px solid #eaeaea;
+    overflow-y: auto;
   }
 }
 

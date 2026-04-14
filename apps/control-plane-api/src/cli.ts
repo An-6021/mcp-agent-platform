@@ -31,7 +31,7 @@ async function main() {
   const repo = createFileRepository({ dataDir, legacyTokens });
   const consoleRepo = createConsoleFileRepository({ dataDir });
 
-  const server = createControlPlaneServer({ repo });
+  const server = createControlPlaneServer({ repo, consoleRepo });
 
   await server.register(import("@fastify/cors"), { origin: true });
 
@@ -47,7 +47,6 @@ async function main() {
       root: webDistDir,
       prefix: "/",
       wildcard: false,
-      decorateReply: false,
     });
     server.setNotFoundHandler(async (request, reply) => {
       if (
@@ -74,6 +73,12 @@ async function main() {
       const body = JSON.parse(res.body) as { data: { total: number; succeeded: number; failed: number } };
       server.log.info(
         `Auto-refresh complete: ${body.data.succeeded}/${body.data.total} succeeded, ${body.data.failed} failed`,
+      );
+
+      server.log.info("Starting hosted sources with autoStart enabled...");
+      const hosted = await processManager.startAutoStartSources();
+      server.log.info(
+        `Hosted auto-start complete: ${hosted.started}/${hosted.total} started, ${hosted.failed} failed`,
       );
     } catch (error) {
       server.log.error({ error }, "Auto-refresh failed");

@@ -84,11 +84,22 @@ export type Source = {
   lastRefreshedAt: string | null;
   status: SourceStatus;
   lastError: string | null;
+  seedDiscovery?: ImportedSourceDiscovery | null;
   config: SourceConfig;
 };
 
 export type SourceDiscovery = {
   sourceId: string;
+  generatedAt: string;
+  status: "ready" | "error";
+  error: string | null;
+  tools: Array<{ name: string; description?: string; inputSchema?: unknown }>;
+  resources: Array<{ uri: string; name?: string; description?: string; mimeType?: string }>;
+  prompts: Array<{ name: string; description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> }>;
+};
+
+export type ImportedSourceDiscovery = {
+  sourceId?: string;
   generatedAt: string;
   status: "ready" | "error";
   error: string | null;
@@ -115,12 +126,14 @@ export type CreateSourceInput = {
   kind: SourceKind;
   enabled?: boolean;
   config: SourceConfig;
+  seedDiscovery?: ImportedSourceDiscovery;
 };
 
 export type UpdateSourceInput = {
   name?: string;
   enabled?: boolean;
   config?: Partial<SourceConfig>;
+  seedDiscovery?: ImportedSourceDiscovery;
 };
 
 // ── Tool 相关类型 ──────────────────────────────────────────────────
@@ -197,6 +210,9 @@ export const consoleApi = {
       { method: "POST" },
     ),
 
+  getSourceSnapshot: (sourceId: string) =>
+    request<SourceDiscovery>(`/admin/sources/${sourceId}/snapshot`, { method: "POST" }),
+
   refreshAllSources: () =>
     request<{
       total: number;
@@ -258,4 +274,13 @@ export const consoleApi = {
     const qs = limit ? `?limit=${limit}` : "";
     return request<{ items: LogEntry[] }>(`/admin/hosted/${sourceId}/logs${qs}`);
   },
+
+  // ── 迁移 ─────────────────────────────────────────────────────────
+
+  migrateHostedNpmToLocalStdio: () =>
+    request<{
+      migrated: number;
+      failed: number;
+      results: Array<{ sourceId: string; status: "ok" | "error"; error?: string }>;
+    }>("/admin/migrate/hosted-npm-to-local-stdio", { method: "POST" }),
 };

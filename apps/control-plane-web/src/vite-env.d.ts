@@ -10,3 +10,4 @@ interface ImportMeta {
 
 declare const __MCP_AGENT_LOCAL_REPO_ROOT__: string;
 declare const __MCP_AGENT_LOCAL_NODE_EXECUTABLE__: string;
+declare const __MCP_AGENT_PUBLIC_CONTROL_PLANE_BASE_URL__: string;

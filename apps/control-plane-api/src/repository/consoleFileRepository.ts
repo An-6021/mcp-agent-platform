@@ -17,6 +17,7 @@ import {
   type ToolExposure,
   type UpdateSourceInput,
 } from "@mcp-agent-platform/shared";
+import { resolveBuiltinDiscoverySeed } from "../builtinDiscoverySeeds";
 
 export type ConsoleFileRepositoryOptions = {
   dataDir: string;
@@ -56,6 +57,29 @@ function parseSourceConfig(kind: Source["kind"], config: unknown): Source["confi
 function createSourceRecord(input: CreateSourceInput): Source {
   const parsed = CreateSourceInputSchema.parse(input);
   const now = nowISO();
+  const seedDiscovery = parsed.seedDiscovery
+    ? SourceSchema.parse({
+        id: parsed.id,
+        name: parsed.name,
+        kind: parsed.kind,
+        enabled: parsed.enabled ?? true,
+        tags: [],
+        createdAt: now,
+        updatedAt: now,
+        lastRefreshedAt: null,
+        status: parsed.enabled === false ? "disabled" : "unknown",
+        lastError: null,
+        seedDiscovery: {
+          generatedAt: parsed.seedDiscovery.generatedAt,
+          status: parsed.seedDiscovery.status,
+          error: parsed.seedDiscovery.error,
+          tools: parsed.seedDiscovery.tools,
+          resources: parsed.seedDiscovery.resources,
+          prompts: parsed.seedDiscovery.prompts,
+        },
+        config: parseSourceConfig(parsed.kind, parsed.config),
+      }).seedDiscovery
+    : null;
 
   return SourceSchema.parse({
     id: parsed.id,
@@ -65,21 +89,49 @@ function createSourceRecord(input: CreateSourceInput): Source {
     tags: [],
     createdAt: now,
     updatedAt: now,
-    lastRefreshedAt: null,
-    status: parsed.enabled === false ? "disabled" : "unknown",
-    lastError: null,
+    lastRefreshedAt: seedDiscovery?.generatedAt ?? null,
+    status: parsed.enabled === false ? "disabled" : seedDiscovery?.status === "error" ? "error" : seedDiscovery ? "ready" : "unknown",
+    lastError: seedDiscovery?.error ?? null,
+    seedDiscovery,
     config: parseSourceConfig(parsed.kind, parsed.config),
   });
 }
 
 function patchSourceRecord(current: Source, patch: UpdateSourceInput): Source {
+  const nextSeedDiscovery = patch.seedDiscovery !== undefined
+    ? SourceSchema.parse({
+        ...current,
+        seedDiscovery: {
+          generatedAt: patch.seedDiscovery.generatedAt,
+          status: patch.seedDiscovery.status,
+          error: patch.seedDiscovery.error,
+          tools: patch.seedDiscovery.tools,
+          resources: patch.seedDiscovery.resources,
+          prompts: patch.seedDiscovery.prompts,
+        },
+      }).seedDiscovery
+    : current.seedDiscovery;
+
   const candidate = {
     ...current,
     ...(patch.name !== undefined ? { name: patch.name } : {}),
     ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-    ...(patch.status !== undefined ? { status: patch.status } : {}),
-    ...(patch.lastRefreshedAt !== undefined ? { lastRefreshedAt: patch.lastRefreshedAt } : {}),
-    ...(patch.lastError !== undefined ? { lastError: patch.lastError } : {}),
+    ...(patch.status !== undefined
+      ? { status: patch.status }
+      : patch.seedDiscovery !== undefined
+        ? { status: current.enabled ? (patch.seedDiscovery.status === "error" ? "error" : "ready") : "disabled" }
+        : {}),
+    ...(patch.lastRefreshedAt !== undefined
+      ? { lastRefreshedAt: patch.lastRefreshedAt }
+      : patch.seedDiscovery !== undefined
+        ? { lastRefreshedAt: patch.seedDiscovery.generatedAt }
+        : {}),
+    ...(patch.lastError !== undefined
+      ? { lastError: patch.lastError }
+      : patch.seedDiscovery !== undefined
+        ? { lastError: patch.seedDiscovery.error }
+        : {}),
+    seedDiscovery: nextSeedDiscovery,
     updatedAt: nowISO(),
   };
 
@@ -87,6 +139,18 @@ function patchSourceRecord(current: Source, patch: UpdateSourceInput): Source {
     ...candidate,
     config: patch.config !== undefined ? parseSourceConfig(current.kind, patch.config) : current.config,
   });
+}
+
+function seedToDiscovery(sourceId: string, seedDiscovery: NonNullable<Source["seedDiscovery"]>): SourceDiscovery {
+  return {
+    sourceId,
+    generatedAt: seedDiscovery.generatedAt,
+    status: seedDiscovery.status,
+    error: seedDiscovery.error,
+    tools: seedDiscovery.tools,
+    resources: seedDiscovery.resources,
+    prompts: seedDiscovery.prompts,
+  };
 }
 
 export function createConsoleFileRepository(options: ConsoleFileRepositoryOptions): ConsoleRepository {
@@ -154,6 +218,9 @@ export function createConsoleFileRepository(options: ConsoleFileRepositoryOption
 
       const source = createSourceRecord(parsed);
       await writeJsonFile(sourceFile(source.id), source);
+      if (source.seedDiscovery) {
+        await writeJsonFile(discoveryFile(source.id), seedToDiscovery(source.id, source.seedDiscovery));
+      }
       return source;
     },
 
@@ -165,6 +232,9 @@ export function createConsoleFileRepository(options: ConsoleFileRepositoryOption
 
       const next = patchSourceRecord(current, patch);
       await writeJsonFile(sourceFile(id), next);
+      if (patch.seedDiscovery !== undefined && next.seedDiscovery) {
+        await writeJsonFile(discoveryFile(id), seedToDiscovery(id, next.seedDiscovery));
+      }
       return next;
     },
 
@@ -191,7 +261,14 @@ export function createConsoleFileRepository(options: ConsoleFileRepositoryOption
     },
 
     async getDiscovery(sourceId: string) {
-      return readJsonFile<SourceDiscovery>(discoveryFile(sourceId));
+      const discovery = await readJsonFile<SourceDiscovery>(discoveryFile(sourceId));
+      if (discovery) {
+        return resolveBuiltinDiscoverySeed(sourceId, discovery);
+      }
+
+      const source = await readJsonFile<Source>(sourceFile(sourceId));
+      const seededDiscovery = source?.seedDiscovery ? seedToDiscovery(sourceId, source.seedDiscovery) : null;
+      return resolveBuiltinDiscoverySeed(sourceId, seededDiscovery);
     },
 
     async listExposures() {

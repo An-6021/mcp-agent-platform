@@ -111,7 +111,12 @@ function HostedRow({ item, onStart, onStop, onRestart, onViewLogs, isPending }: 
         </StatusBadge>
       </td>
       <td className="px-4 py-2.5">
-        <span className="text-[12px] text-[#999]">{formatRelativeTime(item.startedAt)}</span>
+        <div className="space-y-1">
+          <StatusBadge tone={item.autoStart ? "success" : "neutral"}>
+            {item.autoStart ? "已开启" : "未开启"}
+          </StatusBadge>
+          <p className="text-[11px] text-[#999]">{item.startedAt ? `最近启动 ${formatRelativeTime(item.startedAt)}` : "尚未启动"}</p>
+        </div>
       </td>
       <td className="px-4 py-2.5">
         {item.lastError ? (
@@ -207,14 +212,14 @@ export function HostedPage() {
             暂无托管来源
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="table-scroll">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-[#eaeaea]">
                   <th className="table-head-cell">名称</th>
                   <th className="table-head-cell">类型</th>
                   <th className="table-head-cell">状态</th>
-                  <th className="table-head-cell">启动</th>
+                  <th className="table-head-cell">自动启动</th>
                   <th className="table-head-cell">错误</th>
                   <th className="table-head-cell w-[100px]" />
                 </tr>

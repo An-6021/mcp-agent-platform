@@ -28,6 +28,7 @@ export async function launchAgentRuntime(config: WorkspaceConfig, transport: Tra
   const capabilities = {
     ...upstreams.getRuntimeCapabilities(),
     resources: { listChanged: true as const },
+    prompts: { listChanged: true as const },
   };
 
   const server = new Server(
@@ -56,15 +57,13 @@ export async function launchAgentRuntime(config: WorkspaceConfig, transport: Tra
     return await upstreams.readResource(request.params.uri);
   });
 
-  if (capabilities.prompts) {
-    server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-      prompts: await upstreams.listPrompts(),
-    }));
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: await upstreams.listPrompts(),
+  }));
 
-    server.setRequestHandler(GetPromptRequestSchema, async (request: GetPromptRequest) => {
-      return await upstreams.getPrompt(request.params.name, request.params.arguments);
-    });
-  }
+  server.setRequestHandler(GetPromptRequestSchema, async (request: GetPromptRequest) => {
+    return await upstreams.getPrompt(request.params.name, request.params.arguments);
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
     if (discoveryCatalog.isMetaTool(request.params.name)) {
