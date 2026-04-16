@@ -17,6 +17,22 @@ type ParsedTomlServerMap = Record<string, Record<string, unknown>>;
 
 const SERVER_ROOT_KEYS = new Set(["mcpServers", "mcp_servers", "servers"]);
 const EMPTY_TIMEOUT_MS = 30_000;
+const SINGLE_FILE_RUNTIME_BY_EXTENSION = {
+  ts: "tsx",
+  tsx: "tsx",
+  mts: "tsx",
+  js: "node",
+  mjs: "node",
+  cjs: "node",
+  py: "python",
+  sh: "bash",
+} satisfies Record<string, "node" | "tsx" | "python" | "bash">;
+const DEFAULT_FILE_NAME_BY_RUNTIME = {
+  node: "server.mjs",
+  tsx: "server.ts",
+  python: "server.py",
+  bash: "server.sh",
+} satisfies Record<"node" | "tsx" | "python" | "bash", string>;
 
 export function parseImportedSources(raw: string): ImportedSourceCandidate[] {
   const text = raw.trim();
@@ -28,7 +44,35 @@ export function parseImportedSources(raw: string): ImportedSourceCandidate[] {
     return parseJsonSources(text);
   }
 
-  return parseTomlSources(text);
+  const tomlSources = parseTomlSources(text);
+  if (tomlSources.length > 0) {
+    return tomlSources;
+  }
+
+  const looseCandidate = parseLooseSource(text);
+  return looseCandidate ? [looseCandidate] : [];
+}
+
+export function buildHostedSingleFileCandidate(fileName: string, source: string): ImportedSourceCandidate {
+  const runtime = detectRuntimeFromFileName(fileName) ?? detectRuntimeFromSource(source);
+  const safeFileName = fileName.trim() || DEFAULT_FILE_NAME_BY_RUNTIME[runtime];
+  const identity = sanitizeIdentifier(safeFileName.replace(/\.[^.]+$/, "")) || "single-file";
+
+  return {
+    id: identity,
+    name: safeFileName.replace(/\.[^.]+$/, "") || "单文件脚本",
+    kind: "hosted-single-file",
+    config: {
+      fileName: safeFileName,
+      runtime,
+      source,
+      args: [],
+      cwd: null,
+      env: {},
+      timeoutMs: EMPTY_TIMEOUT_MS,
+      autoStart: false,
+    },
+  };
 }
 
 export function buildSourceSnapshotCommand(sourceId: string, origin = window.location.origin): string {
@@ -63,7 +107,7 @@ function parseJsonSources(text: string): ImportedSourceCandidate[] {
       .filter((value): value is ImportedSourceCandidate => Boolean(value));
   }
 
-  return [];
+  return parseNamedJsonSourceMap(parsed);
 }
 
 function parseTomlSources(text: string): ImportedSourceCandidate[] {
@@ -71,6 +115,20 @@ function parseTomlSources(text: string): ImportedSourceCandidate[] {
   return Object.entries(serverMap)
     .map(([serverId, value]) => toImportedSourceCandidate(value, serverId))
     .filter((value): value is ImportedSourceCandidate => Boolean(value));
+}
+
+function parseNamedJsonSourceMap(value: Record<string, unknown>): ImportedSourceCandidate[] {
+  return Object.entries(value)
+    .map(([serverId, serverValue]) => toImportedSourceCandidate(serverValue, serverId))
+    .filter((item): item is ImportedSourceCandidate => Boolean(item));
+}
+
+function parseLooseSource(text: string): ImportedSourceCandidate | null {
+  return (
+    parseUrlSource(text) ??
+    parseCommandSource(text) ??
+    parseScriptSource(text)
+  );
 }
 
 function normalizeRootValue(value: unknown): ImportedSourceCandidate[] {
@@ -378,6 +436,172 @@ function normalizeRuntime(value: unknown): "node" | "tsx" | "python" | "bash" {
     default:
       return "node";
   }
+}
+
+function parseUrlSource(text: string): ImportedSourceCandidate | null {
+  if (!/^https?:\/\//i.test(text)) {
+    return null;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+
+  const hostName = url.hostname.replace(/^www\./, "") || "remote-http";
+  const id = sanitizeIdentifier(hostName.split(".")[0] ?? hostName);
+  return {
+    id,
+    name: hostName,
+    kind: "remote-http",
+    config: {
+      endpoint: url.toString(),
+      headers: {},
+      timeoutMs: EMPTY_TIMEOUT_MS,
+    },
+  };
+}
+
+function parseCommandSource(text: string): ImportedSourceCandidate | null {
+  if (text.includes("\n")) {
+    return null;
+  }
+
+  const command = parseCommandText(text);
+  if (command.length === 0 || !looksLikeCommand(command)) {
+    return null;
+  }
+
+  const identity = sanitizeIdentifier(deriveCommandIdentity(command));
+  return {
+    id: identity,
+    name: deriveCommandLabel(command),
+    kind: "local-stdio",
+    config: {
+      command,
+      cwd: null,
+      env: {},
+      timeoutMs: EMPTY_TIMEOUT_MS,
+    },
+  };
+}
+
+function parseScriptSource(text: string): ImportedSourceCandidate | null {
+  const unwrapped = unwrapCodeFence(text);
+  const runtime = detectRuntimeFromSource(unwrapped.content, unwrapped.language);
+  if (!runtime) {
+    return null;
+  }
+
+  return buildHostedSingleFileCandidate(
+    fileNameFromLanguage(runtime, unwrapped.language),
+    unwrapped.content,
+  );
+}
+
+function unwrapCodeFence(text: string): { content: string; language: string | null } {
+  const match = text.match(/^```([^\n`]*)\n([\s\S]*?)\n```$/);
+  if (!match) {
+    return { content: text, language: null };
+  }
+
+  return {
+    language: match[1]?.trim().toLowerCase() || null,
+    content: match[2] ?? text,
+  };
+}
+
+function detectRuntimeFromFileName(fileName: string): "node" | "tsx" | "python" | "bash" | null {
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  return SINGLE_FILE_RUNTIME_BY_EXTENSION[ext as keyof typeof SINGLE_FILE_RUNTIME_BY_EXTENSION] ?? null;
+}
+
+function detectRuntimeFromSource(
+  source: string,
+  languageHint?: string | null,
+): "node" | "tsx" | "python" | "bash" | null {
+  const hint = normalizeLanguageHint(languageHint);
+  if (hint) {
+    return hint;
+  }
+
+  const text = source.trim();
+  if (!text) {
+    return null;
+  }
+
+  if (/^#!.*\bpython[23]?\b/m.test(text) || /\b(async\s+def|def\s+\w+\s*\()/m.test(text)) {
+    return "python";
+  }
+
+  if (/^#!.*\b(bash|sh)\b/m.test(text)) {
+    return "bash";
+  }
+
+  if (/\binterface\s+\w+|\btype\s+\w+\s*=|\bimport\s+type\b|:\s*(string|number|boolean|unknown|any|Record<)/m.test(text)) {
+    return "tsx";
+  }
+
+  if (/\b(import\s+.+from|export\s+(async\s+)?function|module\.exports|require\(|console\.log|process\.)/m.test(text)) {
+    return "node";
+  }
+
+  return null;
+}
+
+function normalizeLanguageHint(languageHint?: string | null): "node" | "tsx" | "python" | "bash" | null {
+  switch ((languageHint ?? "").trim().toLowerCase()) {
+    case "ts":
+    case "tsx":
+    case "typescript":
+    case "mts":
+      return "tsx";
+    case "js":
+    case "javascript":
+    case "mjs":
+    case "cjs":
+    case "node":
+      return "node";
+    case "py":
+    case "python":
+      return "python";
+    case "sh":
+    case "bash":
+    case "shell":
+      return "bash";
+    default:
+      return null;
+  }
+}
+
+function fileNameFromLanguage(runtime: "node" | "tsx" | "python" | "bash", languageHint?: string | null): string {
+  const hint = (languageHint ?? "").trim().toLowerCase();
+  const ext = hint && SINGLE_FILE_RUNTIME_BY_EXTENSION[hint as keyof typeof SINGLE_FILE_RUNTIME_BY_EXTENSION]
+    ? hint
+    : DEFAULT_FILE_NAME_BY_RUNTIME[runtime].split(".").pop() ?? "";
+  return `server.${ext}`;
+}
+
+function deriveCommandIdentity(command: string[]): string {
+  const meaningful = command.filter((item) => !item.startsWith("-"));
+  const last = meaningful.at(-1) ?? command[0] ?? "local-command";
+  return last.replace(/^@[^/]+\//, "").replace(/\.[^.]+$/, "");
+}
+
+function deriveCommandLabel(command: string[]): string {
+  const identity = deriveCommandIdentity(command);
+  return identity || "本地命令";
+}
+
+function looksLikeCommand(command: string[]): boolean {
+  if (command.length > 1) {
+    return true;
+  }
+
+  const first = command[0] ?? "";
+  return /[./@]/.test(first) || /^(node|npx|pnpm|npm|yarn|bun|python|python3|uvx|bash|sh)$/i.test(first);
 }
 
 function parseTomlServerMap(text: string): ParsedTomlServerMap {

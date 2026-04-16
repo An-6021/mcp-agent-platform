@@ -36,8 +36,8 @@ codex mcp add mcp-hub -- npx -y @sudau/mcp-hub --base-url https://mcp.a1yu.com -
 
 ```toml
 [mcp_servers."mcp-hub"]
-command = "npx"
-args = ["-y", "@sudau/mcp-hub", "--base-url", "https://mcp.a1yu.com", "--workspace", "mcp-hub", "--token", "your-token"]
+command = "/bin/sh"
+args = ["-lc", "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; if [ -d \"$HOME/.nvm/versions/node\" ]; then for dir in \"$HOME\"/.nvm/versions/node/*/bin; do [ -d \"$dir\" ] && PATH=\"$dir:$PATH\"; done; fi; exec 'npx' '-y' '@sudau/mcp-hub' '--base-url' 'https://mcp.a1yu.com' '--workspace' 'mcp-hub' '--token' 'your-token'"]
 ```
 
 ## 用法

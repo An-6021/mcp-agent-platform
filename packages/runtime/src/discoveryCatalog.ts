@@ -15,7 +15,8 @@ const WORKSPACE_SUMMARY_URI = "mcp-agent-meta://workspace/summary";
 const SERVICES_INDEX_URI = "mcp-agent-meta://services/index";
 const SERVICES_CAPABILITIES_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/capabilities";
 const SERVICES_CONFIG_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/config-redacted";
-const META_TOOL_NAME = "mcp_agent_platform.describe_services";
+const META_TOOL_NAME = "mcp_agent_platform_describe_services";
+const LEGACY_META_TOOL_NAME = "mcp_agent_platform.describe_services";
 
 type MetaReadTarget =
   | { kind: "action-manual" }
@@ -125,7 +126,7 @@ export class DiscoveryCatalog {
   }
 
   isMetaTool(name: string): boolean {
-    return name === META_TOOL_NAME;
+    return name === META_TOOL_NAME || name === LEGACY_META_TOOL_NAME;
   }
 
   async callMetaTool(args: Record<string, unknown> | undefined): Promise<CallToolResult> {

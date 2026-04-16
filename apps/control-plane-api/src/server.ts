@@ -6,6 +6,7 @@ import {
   buildWorkspaceConfigFromSources,
   parseWorkspaceConfig,
   type ConsoleRepository,
+  type WorkspaceExportProfile,
   type WorkspaceConfig,
   type WorkspaceRepository,
 } from "@mcp-agent-platform/shared";
@@ -25,6 +26,7 @@ type WorkspaceAuthResult =
 
 type WorkspaceMcpSession = {
   workspaceId: string;
+  exportId: string | null;
   transport: StreamableHTTPServerTransport;
   runtime: AgentRuntimeHandle;
 };
@@ -68,6 +70,38 @@ export function createControlPlaneServer(options: ControlPlaneServerOptions): Fa
     }
   });
 
+  server.get("/v1/workspaces/:workspaceId/exports/:exportId/config", async (request, reply) => {
+    const { workspaceId, exportId } = request.params as { workspaceId: string; exportId: string };
+    try {
+      const auth = await authorizeExportAccess(
+        repo,
+        workspaceId,
+        exportId,
+        getAuthorizationHeader(request.headers.authorization),
+      );
+      if (auth.status === "unauthorized") {
+        reply.code(401);
+        return { error: "unauthorized" };
+      }
+
+      if (auth.status === "workspace_not_found") {
+        reply.code(404);
+        return { error: "workspace_not_found" };
+      }
+
+      if (auth.status === "export_not_found") {
+        reply.code(404);
+        return { error: "export_not_found" };
+      }
+
+      return await loadExportRuntimeConfig(repo, consoleRepo, workspaceId, exportId);
+    } catch (error) {
+      request.log.error({ error, workspaceId, exportId }, "Failed to read export config");
+      reply.code(500);
+      return { error: "internal_error" };
+    }
+  });
+
   server.route({
     method: ["GET", "POST", "DELETE"],
     url: "/v1/workspaces/:workspaceId/mcp",
@@ -81,7 +115,7 @@ export function createControlPlaneServer(options: ControlPlaneServerOptions): Fa
 
         if (sessionId) {
           const session = mcpSessions.get(sessionId);
-          if (!session || session.workspaceId !== workspaceId) {
+          if (!session || session.workspaceId !== workspaceId || session.exportId !== null) {
             writeJsonRpcError(reply.raw, 404, -32001, "Session not found");
             return reply;
           }
@@ -121,6 +155,7 @@ export function createControlPlaneServer(options: ControlPlaneServerOptions): Fa
             if (transport.sessionId) {
               mcpSessions.set(transport.sessionId, {
                 workspaceId,
+                exportId: null,
                 transport,
                 runtime,
               });
@@ -145,8 +180,102 @@ export function createControlPlaneServer(options: ControlPlaneServerOptions): Fa
     },
   });
 
+  server.route({
+    method: ["GET", "POST", "DELETE"],
+    url: "/v1/workspaces/:workspaceId/exports/:exportId/mcp",
+    handler: async (request, reply) => {
+      const { workspaceId, exportId } = request.params as { workspaceId: string; exportId: string };
+      reply.hijack();
+
+      try {
+        const parsedBody = request.body;
+        const sessionId = typeof request.headers["mcp-session-id"] === "string" ? request.headers["mcp-session-id"] : undefined;
+
+        if (sessionId) {
+          const session = mcpSessions.get(sessionId);
+          if (!session || session.workspaceId !== workspaceId || session.exportId !== exportId) {
+            writeJsonRpcError(reply.raw, 404, -32001, "Session not found");
+            return reply;
+          }
+
+          await session.transport.handleRequest(request.raw, reply.raw, parsedBody);
+
+          if (request.method === "DELETE") {
+            mcpSessions.delete(sessionId);
+            await session.runtime.close();
+          }
+
+          return reply;
+        }
+
+        const auth = await authorizeExportAccess(
+          repo,
+          workspaceId,
+          exportId,
+          getAuthorizationHeader(request.headers.authorization),
+        );
+        if (auth.status === "unauthorized") {
+          writeJson(reply.raw, 401, { error: "unauthorized" });
+          return reply;
+        }
+
+        if (auth.status === "workspace_not_found") {
+          writeJson(reply.raw, 404, { error: "workspace_not_found" });
+          return reply;
+        }
+
+        if (auth.status === "export_not_found") {
+          writeJson(reply.raw, 404, { error: "export_not_found" });
+          return reply;
+        }
+
+        if (request.method === "POST" && isInitializeRequest(parsedBody)) {
+          const config = await loadExportRuntimeConfig(repo, consoleRepo, workspaceId, exportId);
+          const transport = new StreamableHTTPServerTransport({
+            enableJsonResponse: true,
+            sessionIdGenerator: () => randomUUID(),
+          });
+          const runtime = await launchAgentRuntime(config, transport);
+
+          try {
+            await transport.handleRequest(request.raw, reply.raw, parsedBody);
+
+            if (transport.sessionId) {
+              mcpSessions.set(transport.sessionId, {
+                workspaceId,
+                exportId,
+                transport,
+                runtime,
+              });
+            } else {
+              await runtime.close();
+            }
+          } catch (error) {
+            await runtime.close();
+            throw error;
+          }
+
+          return reply;
+        }
+
+        writeJsonRpcError(reply.raw, 400, -32000, "Bad Request: Mcp-Session-Id header is required");
+        return reply;
+      } catch (error) {
+        request.log.error({ error, workspaceId, exportId }, "Failed to handle export MCP request");
+        writeJson(reply.raw, 500, { error: "internal_error" });
+        return reply;
+      }
+    },
+  });
+
   return server;
 }
+
+type ExportAuthResult =
+  | { status: "ok" }
+  | { status: "unauthorized" }
+  | { status: "workspace_not_found" }
+  | { status: "export_not_found" };
 
 async function authorizeWorkspaceAccess(
   repo: WorkspaceRepository,
@@ -167,6 +296,31 @@ async function authorizeWorkspaceAccess(
   return { status: "ok" };
 }
 
+async function authorizeExportAccess(
+  repo: WorkspaceRepository,
+  workspaceId: string,
+  exportId: string,
+  authorizationHeader?: string,
+): Promise<ExportAuthResult> {
+  const config = await repo.getPublishedConfig(workspaceId);
+  if (!config) {
+    return { status: "workspace_not_found" };
+  }
+
+  const exportProfile = await repo.getExport(workspaceId, exportId);
+  if (!exportProfile) {
+    return { status: "export_not_found" };
+  }
+
+  const token = readBearerToken(authorizationHeader);
+  const verified = await repo.verifyExportToken(workspaceId, exportId, token ?? "");
+  if (!verified) {
+    return { status: "unauthorized" };
+  }
+
+  return { status: "ok" };
+}
+
 async function loadWorkspaceRuntimeConfig(
   repo: WorkspaceRepository,
   consoleRepo: ConsoleRepository | undefined,
@@ -178,6 +332,26 @@ async function loadWorkspaceRuntimeConfig(
   }
 
   const config = await buildRuntimeConfigFromConsoleSources(workspaceId, publishedConfig, consoleRepo);
+  return await enrichWorkspaceConfig(config, consoleRepo);
+}
+
+async function loadExportRuntimeConfig(
+  repo: WorkspaceRepository,
+  consoleRepo: ConsoleRepository | undefined,
+  workspaceId: string,
+  exportId: string,
+): Promise<WorkspaceConfig> {
+  const publishedConfig = await repo.getPublishedConfig(workspaceId);
+  if (!publishedConfig) {
+    throw new Error(`Workspace "${workspaceId}" not found`);
+  }
+
+  const exportProfile = await repo.getExport(workspaceId, exportId);
+  if (!exportProfile) {
+    throw new Error(`Export "${exportId}" not found for workspace "${workspaceId}"`);
+  }
+
+  const config = await buildRuntimeConfigForExport(workspaceId, publishedConfig, exportProfile, consoleRepo);
   return await enrichWorkspaceConfig(config, consoleRepo);
 }
 
@@ -204,6 +378,38 @@ async function buildRuntimeConfigFromConsoleSources(
   });
 }
 
+async function buildRuntimeConfigForExport(
+  workspaceId: string,
+  publishedConfig: WorkspaceConfig,
+  exportProfile: WorkspaceExportProfile,
+  consoleRepo?: ConsoleRepository,
+): Promise<WorkspaceConfig> {
+  const enabledSourceIds = new Set(exportProfile.enabledSourceIds);
+
+  if (consoleRepo) {
+    const sources = await consoleRepo.listSources();
+    const filteredSources = sources.filter((source) => source.enabled && enabledSourceIds.has(source.id));
+    const runtimeConfig = buildWorkspaceConfigFromSources({
+      workspaceId: exportProfile.serverName,
+      displayName: exportProfile.name,
+      sources: filteredSources,
+    });
+
+    return parseWorkspaceConfig({
+      ...runtimeConfig,
+      schemaVersion: publishedConfig.schemaVersion,
+      cacheTtlSeconds: publishedConfig.cacheTtlSeconds,
+    });
+  }
+
+  return parseWorkspaceConfig({
+    ...publishedConfig,
+    workspaceId: exportProfile.serverName,
+    displayName: exportProfile.name,
+    upstreams: publishedConfig.upstreams.filter((upstream) => upstream.enabled && enabledSourceIds.has(upstream.id)),
+  });
+}
+
 async function enrichWorkspaceConfig(config: WorkspaceConfig, consoleRepo?: ConsoleRepository): Promise<WorkspaceConfig> {
   if (!consoleRepo || config.upstreams.length === 0) return config;
 
@@ -213,7 +419,7 @@ async function enrichWorkspaceConfig(config: WorkspaceConfig, consoleRepo?: Cons
       const discovery = await consoleRepo.getDiscovery(upstream.id);
       return {
         ...upstream,
-        cachedCapabilities: buildCachedCapabilities(discovery, exposures),
+        cachedCapabilities: buildCachedCapabilities(discovery, exposures, upstream.label),
       };
     }),
   );

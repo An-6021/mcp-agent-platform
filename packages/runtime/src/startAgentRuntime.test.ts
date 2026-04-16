@@ -22,7 +22,7 @@ type HttpUpstreamHandle = {
   close: () => Promise<void>;
 };
 
-const META_TOOL_NAME = "mcp_agent_platform.describe_services";
+const META_TOOL_NAME = "mcp_agent_platform_describe_services";
 const ACTION_MANUAL_URI = "mcp-agent-meta://workspace/action-manual";
 const SERVICE_INDEX_URI = "mcp-agent-meta://services/index";
 const SERVICE_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/capabilities";
@@ -189,6 +189,47 @@ describe("launchAgentRuntime", () => {
       const serviceDetail = await client.readResource({ uri: "mcp-agent-meta://services/solo/capabilities" });
       const serviceDetailPayload = parseReadResourceJson(serviceDetail);
       expect(serviceDetailPayload.service.tools.map((tool: { qualifiedName: string }) => tool.qualifiedName)).toEqual(["solo_echo"]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("兼容遗留 /sse 配置并自动回退到 /mcp", async () => {
+    const fullUpstream = await launchHttpUpstream(createFullFeaturedUpstream("legacy"));
+    upstreamClosers.push(fullUpstream.close);
+
+    const config: WorkspaceConfig = {
+      schemaVersion: 1,
+      workspaceId: "legacy-sse",
+      displayName: "Legacy SSE",
+      generatedAt: "2026-04-15T00:00:00.000Z",
+      cacheTtlSeconds: 300,
+      upstreams: [
+        {
+          id: "legacy",
+          label: "Legacy",
+          kind: "direct-http",
+          url: fullUpstream.url.replace(/\/mcp$/, "/sse"),
+          headers: {},
+          enabled: true,
+          cachedCapabilities: createFullCachedCapabilities("legacy"),
+        },
+      ],
+    };
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    runtimeHandle = await launchAgentRuntime(config, serverTransport);
+
+    const client = new Client({ name: "runtime-legacy-sse-client", version: "0.0.0" });
+    await client.connect(clientTransport);
+
+    try {
+      const tools = await client.listTools();
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["legacy_echo", "legacy_sum", META_TOOL_NAME].sort());
+
+      const echo = await client.callTool({ name: "legacy_echo", arguments: { text: "fallback" } });
+      const echoText = echo.content.find((item) => item.type === "text");
+      expect(echoText && "text" in echoText ? echoText.text : "").toBe("legacy:echo:fallback");
     } finally {
       await client.close();
     }

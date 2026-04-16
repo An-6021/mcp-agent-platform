@@ -71,10 +71,21 @@ export type WorkspaceDraft = {
 export type TokenMeta = {
   id: string;
   workspaceId: string;
+  exportId: string | null;
   label: string;
   tokenPreview: string;
   createdAt: string;
   revokedAt: string | null;
+};
+
+export type WorkspaceExportProfile = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  serverName: string;
+  enabledSourceIds: string[];
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type PublishedConfigSnapshot = {
@@ -157,6 +168,30 @@ export const api = {
 
   getWorkspace: (id: string) => request<WorkspaceDetail>(`/admin/workspaces/${id}`),
 
+  listExports: (id: string) =>
+    request<{ items: WorkspaceExportProfile[] }>(`/admin/workspaces/${id}/exports`).then((result) => result.items),
+
+  createExport: (id: string, input: { name: string; serverName: string; enabledSourceIds: string[] }) =>
+    request<{ item: WorkspaceExportProfile }>(`/admin/workspaces/${id}/exports`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }).then((result) => result.item),
+
+  updateExport: (
+    id: string,
+    exportId: string,
+    input: { name?: string; serverName?: string; enabledSourceIds?: string[] },
+  ) =>
+    request<{ item: WorkspaceExportProfile }>(`/admin/workspaces/${id}/exports/${exportId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }).then((result) => result.item),
+
+  deleteExport: (id: string, exportId: string) =>
+    request<{ deleted: true }>(`/admin/workspaces/${id}/exports/${exportId}`, {
+      method: "DELETE",
+    }),
+
   saveDraft: (id: string, draft: Partial<WorkspaceDraft>) =>
     request<WorkspaceDraft>(`/admin/workspaces/${id}/draft`, {
       method: "PUT",
@@ -179,6 +214,12 @@ export const api = {
 
   createToken: (id: string, input?: { label?: string }) =>
     request<{ token: string; meta: TokenMeta }>(`/admin/workspaces/${id}/tokens`, {
+      method: "POST",
+      body: JSON.stringify(input ?? {}),
+    }),
+
+  createExportToken: (id: string, exportId: string, input?: { label?: string }) =>
+    request<{ token: string; meta: TokenMeta }>(`/admin/workspaces/${id}/exports/${exportId}/token`, {
       method: "POST",
       body: JSON.stringify(input ?? {}),
     }),

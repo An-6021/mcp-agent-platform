@@ -352,8 +352,27 @@ export function buildWorkspaceConfigFromSources(input: {
   };
 }
 
-export function buildCachedCapabilities(discovery: SourceDiscovery | null, exposures: ToolExposure[]): CachedUpstreamCapabilities | null {
+export function buildCachedCapabilities(
+  discovery: SourceDiscovery | null,
+  exposures: ToolExposure[],
+  sourceName?: string,
+): CachedUpstreamCapabilities | null {
   if (!discovery) return null;
+
+  const matchedExposures = exposures
+    .filter((item) => item.sourceId === discovery.sourceId)
+    .sort((left, right) => left.order - right.order || left.exposedName.localeCompare(right.exposedName));
+
+  const effectiveExposures = matchedExposures.length > 0
+    ? matchedExposures
+    : discovery.tools.map((tool, index) => ({
+        sourceId: discovery.sourceId,
+        originalName: tool.name,
+        exposedName: defaultExposedName(sourceName ?? discovery.sourceId, tool.name),
+        enabled: true,
+        order: index,
+        strategy: "default" as const,
+      }));
 
   return {
     generatedAt: discovery.generatedAt,
@@ -380,10 +399,7 @@ export function buildCachedCapabilities(discovery: SourceDiscovery | null, expos
         required: argument.required,
       })),
     })),
-    toolExposures: exposures
-      .filter((item) => item.sourceId === discovery.sourceId)
-      .sort((left, right) => left.order - right.order || left.exposedName.localeCompare(right.exposedName))
-      .map((item) => ({
+    toolExposures: effectiveExposures.map((item) => ({
         originalName: item.originalName,
         exposedName: item.exposedName,
         enabled: item.enabled,

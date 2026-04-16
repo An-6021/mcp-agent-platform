@@ -8,14 +8,17 @@ import {
   parseWorkspaceConfig,
 } from "@mcp-agent-platform/shared";
 import type {
+  CreateWorkspaceExportInput,
   Workspace,
   WorkspaceDraft,
+  WorkspaceExportProfile,
   WorkspaceSummary,
   PublishedConfigSnapshot,
   WorkspaceTokenMeta,
   CreateWorkspaceTokenInput,
   CreateWorkspaceInput,
   PublishInput,
+  UpdateWorkspaceExportInput,
   WorkspaceRepository,
 } from "@mcp-agent-platform/shared";
 
@@ -84,6 +87,7 @@ function normalizeTokenMeta(workspaceId: string, raw: WorkspaceTokenMeta | Legac
   return {
     id: "id" in raw && typeof raw.id === "string" && raw.id ? raw.id : getLegacyTokenId(tokenHash, index),
     workspaceId,
+    exportId: "exportId" in raw && typeof raw.exportId === "string" && raw.exportId ? raw.exportId : null,
     label: "label" in raw && typeof raw.label === "string" && raw.label ? raw.label : defaultTokenLabel(index),
     tokenHash,
     tokenPreview,
@@ -92,8 +96,24 @@ function normalizeTokenMeta(workspaceId: string, raw: WorkspaceTokenMeta | Legac
   };
 }
 
-function hasActiveToken(tokens: WorkspaceTokenMeta[] | undefined): boolean {
-  return (tokens ?? []).some((token) => !token.revokedAt);
+function hasActiveToken(tokens: WorkspaceTokenMeta[] | undefined, exportId: string | null = null): boolean {
+  return (tokens ?? []).some((token) => !token.revokedAt && (token.exportId ?? null) === exportId);
+}
+
+function normalizeSourceIds(value: string[] | undefined): string[] {
+  return [...new Set((value ?? []).map((item) => item.trim()).filter(Boolean))];
+}
+
+function normalizeExportProfile(workspaceId: string, raw: WorkspaceExportProfile): WorkspaceExportProfile {
+  return {
+    id: raw.id,
+    workspaceId,
+    name: raw.name.trim(),
+    serverName: raw.serverName.trim(),
+    enabledSourceIds: normalizeSourceIds(raw.enabledSourceIds),
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+  };
 }
 
 // ── File Repository ─────────────────────────────────────────────────────
@@ -122,6 +142,9 @@ export function createFileRepository(options: FileRepositoryOptions): WorkspaceR
   }
   function publishedFile(id: string) {
     return path.join(wsDir(id), "published.json");
+  }
+  function exportsFile(id: string) {
+    return path.join(wsDir(id), "exports.json");
   }
   function snapshotsDir(id: string) {
     return path.join(wsDir(id), "snapshots");
@@ -156,6 +179,15 @@ export function createFileRepository(options: FileRepositoryOptions): WorkspaceR
 
   async function writeTokenStore(store: TokenStore): Promise<void> {
     await writeJsonFile(tokensFile, store);
+  }
+
+  async function readExports(id: string): Promise<WorkspaceExportProfile[]> {
+    const raw = (await readJsonFile<WorkspaceExportProfile[]>(exportsFile(id))) ?? [];
+    return raw.map((item) => normalizeExportProfile(id, item));
+  }
+
+  async function writeExports(id: string, exports: WorkspaceExportProfile[]): Promise<void> {
+    await writeJsonFile(exportsFile(id), exports);
   }
 
   // ── Migration: legacy flat file → new structure ─────────────────
@@ -198,6 +230,7 @@ export function createFileRepository(options: FileRepositoryOptions): WorkspaceR
           {
             id: randomUUID(),
             workspaceId: id,
+            exportId: null,
             label: defaultTokenLabel(0),
             tokenHash: sha256(options.legacyTokens[id]),
             tokenPreview: tokenPreview(options.legacyTokens[id]),
@@ -273,7 +306,7 @@ export function createFileRepository(options: FileRepositoryOptions): WorkspaceR
           displayName: ws.displayName,
           status: ws.status,
           upstreamCount: draft?.upstreams?.length ?? published?.upstreams?.length ?? 0,
-          hasToken: hasActiveToken(tokenStore[id]),
+          hasToken: hasActiveToken(tokenStore[id], null),
           lastPublishedAt: published?.generatedAt ?? null,
         });
       }
@@ -423,7 +456,7 @@ export function createFileRepository(options: FileRepositoryOptions): WorkspaceR
 
     async listTokens(id: string): Promise<WorkspaceTokenMeta[]> {
       const store = await readTokenStore();
-      return store[id] ?? [];
+      return (store[id] ?? []).filter((meta) => meta.exportId === null);
     },
 
     async createToken(id: string, input?: CreateWorkspaceTokenInput): Promise<{ token: string; meta: WorkspaceTokenMeta }> {
@@ -437,6 +470,7 @@ export function createFileRepository(options: FileRepositoryOptions): WorkspaceR
       const meta: WorkspaceTokenMeta = {
         id: randomUUID(),
         workspaceId: id,
+        exportId: null,
         label: buildTokenLabel(tokens, input),
         tokenHash: sha256(token),
         tokenPreview: tokenPreview(token),
@@ -482,7 +516,7 @@ export function createFileRepository(options: FileRepositoryOptions): WorkspaceR
 
       // Check persisted token store first
       const store = await readTokenStore();
-      const tokens = store[id] ?? [];
+      const tokens = (store[id] ?? []).filter((meta) => meta.exportId === null);
       const hasStoredActiveToken = tokens.some((meta) => !meta.revokedAt);
       if (tokens.some((meta) => !meta.revokedAt && meta.tokenHash === tokenHash)) {
         return true;
@@ -495,6 +529,108 @@ export function createFileRepository(options: FileRepositoryOptions): WorkspaceR
       }
 
       // No token configured → no auth required
+      return !hasStoredActiveToken;
+    },
+
+    async listExports(id: string): Promise<WorkspaceExportProfile[]> {
+      await migrateIfNeeded(id);
+      return await readExports(id);
+    },
+
+    async createExport(id: string, input: CreateWorkspaceExportInput): Promise<WorkspaceExportProfile> {
+      const ws = await readJsonFile<Workspace>(wsFile(id));
+      if (!ws) throw new Error(`Workspace "${id}" not found`);
+
+      const now = nowISO();
+      const exports = await readExports(id);
+      const profile = normalizeExportProfile(id, {
+        id: randomUUID(),
+        workspaceId: id,
+        name: input.name,
+        serverName: input.serverName,
+        enabledSourceIds: input.enabledSourceIds,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await writeExports(id, [...exports, profile]);
+      return profile;
+    },
+
+    async updateExport(id: string, exportId: string, input: UpdateWorkspaceExportInput): Promise<WorkspaceExportProfile> {
+      const exports = await readExports(id);
+      const index = exports.findIndex((item) => item.id === exportId);
+      if (index === -1) {
+        throw new Error(`Export "${exportId}" not found for workspace "${id}"`);
+      }
+
+      const current = exports[index];
+      if (!current) {
+        throw new Error(`Export "${exportId}" not found for workspace "${id}"`);
+      }
+
+      const next = normalizeExportProfile(id, {
+        ...current,
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.serverName !== undefined ? { serverName: input.serverName } : {}),
+        ...(input.enabledSourceIds !== undefined ? { enabledSourceIds: input.enabledSourceIds } : {}),
+        updatedAt: nowISO(),
+      });
+      exports[index] = next;
+      await writeExports(id, exports);
+      return next;
+    },
+
+    async deleteExport(id: string, exportId: string): Promise<void> {
+      const exports = await readExports(id);
+      const next = exports.filter((item) => item.id !== exportId);
+      if (next.length === exports.length) {
+        throw new Error(`Export "${exportId}" not found for workspace "${id}"`);
+      }
+      await writeExports(id, next);
+    },
+
+    async getExport(id: string, exportId: string): Promise<WorkspaceExportProfile | null> {
+      const exports = await readExports(id);
+      return exports.find((item) => item.id === exportId) ?? null;
+    },
+
+    async createExportToken(id: string, exportId: string, input?: CreateWorkspaceTokenInput): Promise<{ token: string; meta: WorkspaceTokenMeta }> {
+      const ws = await readJsonFile<Workspace>(wsFile(id));
+      if (!ws) throw new Error(`Workspace "${id}" not found`);
+
+      const exportProfile = await repo.getExport(id, exportId);
+      if (!exportProfile) throw new Error(`Export "${exportId}" not found for workspace "${id}"`);
+
+      const token = randomUUID();
+      const now = nowISO();
+      const store = await readTokenStore();
+      const exportTokens = (store[id] ?? []).filter((meta) => meta.exportId === exportId);
+      const meta: WorkspaceTokenMeta = {
+        id: randomUUID(),
+        workspaceId: id,
+        exportId,
+        label: buildTokenLabel(exportTokens, input),
+        tokenHash: sha256(token),
+        tokenPreview: tokenPreview(token),
+        createdAt: now,
+        revokedAt: null,
+      };
+
+      store[id] = [...(store[id] ?? []), meta];
+      await writeTokenStore(store);
+
+      return { token, meta };
+    },
+
+    async verifyExportToken(id: string, exportId: string, token: string): Promise<boolean> {
+      const tokenHash = sha256(token);
+      const store = await readTokenStore();
+      const tokens = (store[id] ?? []).filter((meta) => meta.exportId === exportId);
+      const hasStoredActiveToken = tokens.some((meta) => !meta.revokedAt);
+      if (tokens.some((meta) => !meta.revokedAt && meta.tokenHash === tokenHash)) {
+        return true;
+      }
+
       return !hasStoredActiveToken;
     },
   };

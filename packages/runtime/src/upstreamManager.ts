@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type {
@@ -32,12 +33,17 @@ import {
 
 type OptionalCapability = "resources" | "prompts";
 type RuntimeState = "disconnected" | "connecting" | "connected" | "failed";
+type ClientTransport = StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport;
+type ClientTransportCandidate = {
+  description: string;
+  create: () => ClientTransport;
+};
 
 type UpstreamRuntime = {
   config: UpstreamConfig;
   cachedCapabilities: CachedUpstreamCapabilities | null;
   client?: Client;
-  transport?: StdioClientTransport | StreamableHTTPClientTransport;
+  transport?: StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport;
   capabilities?: ServerCapabilities;
   state: RuntimeState;
   lastError?: string;
@@ -435,31 +441,43 @@ export class UpstreamManager {
     runtime.state = "connecting";
     runtime.lastError = undefined;
 
-    const client = new Client({ name: `mcp-agent-upstream-${upstreamId}`, version: "0.1.0" });
-    client.onclose = () => {
-      if (runtime.closing) return;
-      runtime.client = undefined;
-      runtime.transport = undefined;
-      runtime.state = "disconnected";
-    };
-    client.onerror = (error) => {
-      runtime.lastError = error.message;
-    };
+    const candidates = await createClientTransportCandidates(runtime.config);
+    const attemptErrors: string[] = [];
 
-    const transport = await createClientTransport(runtime.config);
-    runtime.transport = transport;
+    for (const candidate of candidates) {
+      const client = new Client({ name: `mcp-agent-upstream-${upstreamId}`, version: "0.1.0" });
+      const transport = candidate.create();
 
-    try {
-      await client.connect(transport);
-      runtime.client = client;
-      runtime.capabilities = client.getServerCapabilities() ?? {};
-      runtime.state = "connected";
-      runtime.backoffMs = INITIAL_BACKOFF_MS;
-    } catch (error) {
-      await this.disposeConnection(runtime, true);
-      this.markFailed(runtime, error);
-      throw error;
+      client.onclose = () => {
+        if (runtime.closing) return;
+        if (runtime.client !== client) return;
+        runtime.client = undefined;
+        runtime.transport = undefined;
+        runtime.state = "disconnected";
+      };
+      client.onerror = (error) => {
+        if (runtime.client === client || runtime.transport === transport) {
+          runtime.lastError = error.message;
+        }
+      };
+
+      try {
+        await client.connect(transport);
+        runtime.client = client;
+        runtime.transport = transport;
+        runtime.capabilities = client.getServerCapabilities() ?? {};
+        runtime.state = "connected";
+        runtime.backoffMs = INITIAL_BACKOFF_MS;
+        return;
+      } catch (error) {
+        attemptErrors.push(formatTransportAttemptError(candidate.description, error));
+        await closeStandaloneTransport(client, transport);
+      }
     }
+
+    const finalError = new Error(attemptErrors.join(" | ") || `连接上游失败：${upstreamId}`);
+    this.markFailed(runtime, finalError);
+    throw finalError;
   }
 
   private scheduleReconnect(runtime: UpstreamRuntime, upstreamId: string) {
@@ -605,26 +623,85 @@ function getLatestCachedGeneratedAt(runtimes: UpstreamRuntime[], fallback: strin
   return timestamps.at(-1) ?? fallback;
 }
 
-async function createClientTransport(config: UpstreamConfig): Promise<StdioClientTransport | StreamableHTTPClientTransport> {
+async function createClientTransportCandidates(config: UpstreamConfig): Promise<ClientTransportCandidate[]> {
   if (config.kind === "direct-http") {
-    return new StreamableHTTPClientTransport(new URL(config.url), {
-      requestInit: {
-        headers: config.headers,
-      },
-    });
+    const url = new URL(config.url);
+    const requestInit = {
+      headers: config.headers,
+    };
+    const candidates: ClientTransportCandidate[] = [];
+    const seen = new Set<string>();
+    const pushCandidate = (description: string, transportUrl: URL, create: () => ClientTransport) => {
+      const key = `${description}:${transportUrl.toString()}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      candidates.push({ description, create });
+    };
+    const sseFallbackUrl = replaceTerminalPath(url, "/mcp", "/sse");
+    const streamableFallbackUrl = replaceTerminalPath(url, "/sse", "/mcp");
+
+    if (streamableFallbackUrl) {
+      pushCandidate(`Streamable HTTP (${streamableFallbackUrl.toString()})`, streamableFallbackUrl, () =>
+        new StreamableHTTPClientTransport(streamableFallbackUrl, { requestInit }),
+      );
+    }
+
+    if (!streamableFallbackUrl || url.pathname.endsWith("/mcp")) {
+      pushCandidate(`Streamable HTTP (${url.toString()})`, url, () =>
+        new StreamableHTTPClientTransport(url, { requestInit }),
+      );
+    }
+
+    if (url.pathname.endsWith("/sse")) {
+      pushCandidate(`Legacy SSE (${url.toString()})`, url, () =>
+        new SSEClientTransport(url, { requestInit }),
+      );
+    } else if (sseFallbackUrl) {
+      pushCandidate(`Legacy SSE (${sseFallbackUrl.toString()})`, sseFallbackUrl, () =>
+        new SSEClientTransport(sseFallbackUrl, { requestInit }),
+      );
+    }
+
+    return candidates;
   }
 
   const launch = await resolveStdioLaunchConfig(config);
   const [command, ...args] = launch.command;
   if (!command) throw new Error(`无效的 stdio 命令：${config.id}`);
 
-  return new StdioClientTransport({
-    command: resolveStdioCommand(command),
-    args,
-    env: inheritEnv(launch.env),
-    cwd: launch.cwd,
-    stderr: "inherit",
-  });
+  return [
+    {
+      description: `stdio (${command})`,
+      create: () =>
+        new StdioClientTransport({
+          command: resolveStdioCommand(command),
+          args,
+          env: inheritEnv(launch.env),
+          cwd: launch.cwd,
+          stderr: "inherit",
+        }),
+    },
+  ];
+}
+
+async function closeStandaloneTransport(client: Client, transport: ClientTransport): Promise<void> {
+  try {
+    await client.close();
+    return;
+  } catch {
+    // ignore
+  }
+
+  try {
+    await transport.close();
+  } catch {
+    // ignore
+  }
+}
+
+function formatTransportAttemptError(description: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${description}: ${message}`;
 }
 
 type StdioLaunchConfig = {
@@ -731,6 +808,25 @@ function getDefaultHostedFileName(runtime: HostedSingleFileUpstreamConfig["runti
 function sanitizePathSegment(value: string): string {
   const normalized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-");
   return normalized || "upstream";
+}
+
+function replaceTerminalPath(url: URL, fromSuffix: string, toSuffix: string): URL | null {
+  const pathname = normalizeTerminalPath(url.pathname);
+  if (!pathname.endsWith(fromSuffix)) {
+    return null;
+  }
+
+  const nextUrl = new URL(url.toString());
+  const nextPathname = `${pathname.slice(0, -fromSuffix.length)}${toSuffix}`;
+  nextUrl.pathname = nextPathname || "/";
+  return nextUrl;
+}
+
+function normalizeTerminalPath(pathname: string): string {
+  if (pathname.length > 1 && pathname.endsWith("/")) {
+    return pathname.slice(0, -1);
+  }
+  return pathname || "/";
 }
 
 function findNearestNodeModulesDir(fromFilePath: string): string | null {

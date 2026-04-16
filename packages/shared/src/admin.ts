@@ -35,11 +35,22 @@ export type PublishedConfigSnapshot = {
 export type WorkspaceTokenMeta = {
   id: string;
   workspaceId: string;
+  exportId: string | null;
   label: string;
   tokenHash: string;
   tokenPreview: string;
   createdAt: string;
   revokedAt: string | null;
+};
+
+export type WorkspaceExportProfile = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  serverName: string;
+  enabledSourceIds: string[];
+  createdAt: string;
+  updatedAt: string;
 };
 
 // ── Input types ─────────────────────────────────────────────────────────
@@ -58,6 +69,18 @@ export type PublishInput = {
 
 export type CreateWorkspaceTokenInput = {
   label?: string;
+};
+
+export type CreateWorkspaceExportInput = {
+  name: string;
+  serverName: string;
+  enabledSourceIds: string[];
+};
+
+export type UpdateWorkspaceExportInput = {
+  name?: string;
+  serverName?: string;
+  enabledSourceIds?: string[];
 };
 
 // ── Summary type for list endpoint ──────────────────────────────────────
@@ -132,4 +155,11 @@ export type WorkspaceRepository = {
   createToken(id: string, input?: CreateWorkspaceTokenInput): Promise<{ token: string; meta: WorkspaceTokenMeta }>;
   revokeToken(id: string, tokenId: string): Promise<WorkspaceTokenMeta>;
   verifyToken(id: string, token: string): Promise<boolean>;
+  listExports(id: string): Promise<WorkspaceExportProfile[]>;
+  createExport(id: string, input: CreateWorkspaceExportInput): Promise<WorkspaceExportProfile>;
+  updateExport(id: string, exportId: string, input: UpdateWorkspaceExportInput): Promise<WorkspaceExportProfile>;
+  deleteExport(id: string, exportId: string): Promise<void>;
+  getExport(id: string, exportId: string): Promise<WorkspaceExportProfile | null>;
+  createExportToken(id: string, exportId: string, input?: CreateWorkspaceTokenInput): Promise<{ token: string; meta: WorkspaceTokenMeta }>;
+  verifyExportToken(id: string, exportId: string, token: string): Promise<boolean>;
 };

@@ -12,19 +12,10 @@ import {
 import { api } from "../api/client";
 import { MetricStrip, StatusBadge, type BadgeTone } from "../components/ConsolePrimitives";
 import { CheckIcon, CopyIcon, EditIcon, PlusIcon, RefreshIcon, TrashIcon, ToggleOnIcon, ToggleOffIcon, UploadIcon } from "../components/AppIcons";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/Select";
+import { ExportProfilesSection } from "../components/ExportProfilesSection";
 import { buildClientConfigSnippets } from "../utils/clientConfigs";
 import { formatRelativeTime, formatSourceKindLabel, formatSourceStatusLabel } from "../utils/labels";
-import { parseImportedSources, type ImportedSourceCandidate } from "../utils/sourceImports";
-
-// ── 来源类型说明 ──────────────────────────────────────────────────────
-
-const SOURCE_KIND_HINTS: Record<SourceKind, string> = {
-  "remote-http": "连接已部署的远程 HTTP/SSE 端点",
-  "local-stdio": "按需启动本地命令行进程，通过 stdio 通信",
-  "hosted-npm": "由平台安装并管理 npm 包，支持生命周期控制与日志",
-  "hosted-single-file": "上传脚本文件，由平台托管运行",
-};
+import { buildHostedSingleFileCandidate, parseImportedSources, type ImportedSourceCandidate } from "../utils/sourceImports";
 
 // ── 状态映射 ────────────────────────────────────────────────────────
 
@@ -94,22 +85,56 @@ function detectRuntimeFromFileName(fileName: string): HostedSingleFileDraftConfi
   return EXTENSION_RUNTIME_MAP[ext] ?? "node";
 }
 
-function ClientConfigQuickActions() {
+function describeImportedCandidate(candidate: ImportedSourceCandidate): string {
+  if (candidate.kind === "remote-http") {
+    return candidate.config.endpoint;
+  }
+
+  if (candidate.kind === "local-stdio") {
+    return formatCommandText(candidate.config.command);
+  }
+
+  if (candidate.kind === "hosted-npm") {
+    return candidate.config.packageName;
+  }
+
+  return `${candidate.config.fileName} · ${candidate.config.runtime}`;
+}
+
+function formatSnapshotError(error: Error): string {
+  const message = error.message.toLowerCase();
+  if (message.includes("non-200 status code (400)") || message.includes("unexpected content type")) {
+    return "这个地址没有返回可用的 MCP 服务，请确认粘贴的是正确入口后再试。";
+  }
+
+  if (message.includes("fetch failed") || message.includes("econnrefused") || message.includes("enotfound") || message.includes("timedout")) {
+    return "暂时连不上这个服务，请确认地址可访问后再试。";
+  }
+
+  return "暂时拿不到能力快照，请稍后再试。";
+}
+
+function buildSourceIdFromName(name: string, fallback: string): string {
+  const sanitized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return sanitized || fallback;
+}
+
+function ClientConfigQuickActions({ workspaceId }: { workspaceId: string | null }) {
   const queryClient = useQueryClient();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
-  const { data: workspaces } = useQuery({
-    queryKey: ["workspaces"],
-    queryFn: api.listWorkspaces,
-  });
-
-  const workspace = workspaces?.find((item) => item.status === "active") ?? workspaces?.[0] ?? null;
-  const snippets = workspace ? buildClientConfigSnippets({ workspaceId: workspace.id, token: generatedToken ?? undefined }) : [];
+  const snippets = workspaceId ? buildClientConfigSnippets({ workspaceId, token: generatedToken ?? undefined }) : [];
   const tomlSnippet = snippets.find((snippet) => snippet.id === "toml") ?? null;
   const jsonSnippet = snippets.find((snippet) => snippet.id === "json") ?? null;
 
   async function ensureToken() {
-    if (!workspace) {
+    if (!workspaceId) {
       throw new Error("当前没有可用服务");
     }
 
@@ -117,23 +142,23 @@ function ClientConfigQuickActions() {
       return generatedToken;
     }
 
-    const created = await api.createToken(workspace.id, {
+    const created = await api.createToken(workspaceId, {
       label: `Sources Copy ${new Date().toISOString()}`,
     });
     setGeneratedToken(created.token);
     queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-    queryClient.invalidateQueries({ queryKey: ["workspace", workspace.id] });
+    queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
     return created.token;
   }
 
   async function copyContent(id: "toml" | "json") {
     try {
-      if (!workspace) {
+      if (!workspaceId) {
         return;
       }
 
       const token = await ensureToken();
-      const snippet = buildClientConfigSnippets({ workspaceId: workspace.id, token }).find((item) => item.id === id);
+      const snippet = buildClientConfigSnippets({ workspaceId, token }).find((item) => item.id === id);
       if (!snippet) {
         throw new Error("未找到可复制的配置");
       }
@@ -181,12 +206,6 @@ type SourceDialogProps = {
   onSaved: () => void;
 };
 
-const SOURCE_KIND_OPTIONS: { value: SourceKind; label: string }[] = [
-  { value: "remote-http", label: "远程 HTTP" },
-  { value: "local-stdio", label: "本地命令" },
-  { value: "hosted-single-file", label: "单文件托管" },
-];
-
 function SourceDialog({ mode, sourceId, onClose, onSaved }: SourceDialogProps) {
   const isEdit = mode === "edit";
   const [id, setId] = useState("");
@@ -194,8 +213,7 @@ function SourceDialog({ mode, sourceId, onClose, onSaved }: SourceDialogProps) {
   const [kind, setKind] = useState<SourceKind>("remote-http");
   const [draftConfig, setDraftConfig] = useState<SourceConfig>(() => createDefaultSourceConfig("remote-http"));
   const [importText, setImportText] = useState("");
-  const [importedCandidates, setImportedCandidates] = useState<ImportedSourceCandidate[]>([]);
-  const [selectedImportedId, setSelectedImportedId] = useState<string | null>(null);
+  const [detectedImport, setDetectedImport] = useState<ImportedSourceCandidate | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [seedDiscoveryText, setSeedDiscoveryText] = useState("");
   const [seedDiscoveryError, setSeedDiscoveryError] = useState<string | null>(null);
@@ -225,8 +243,8 @@ function SourceDialog({ mode, sourceId, onClose, onSaved }: SourceDialogProps) {
       setSeedDiscoveryText(JSON.stringify(sourceQuery.data.discovery, null, 2));
     }
 
-    setImportedCandidates([]);
-    setSelectedImportedId(null);
+    setImportText("");
+    setDetectedImport(null);
     setImportError(null);
   }, [sourceQuery.data?.source, sourceQuery.data?.discovery]);
 
@@ -274,9 +292,24 @@ function SourceDialog({ mode, sourceId, onClose, onSaved }: SourceDialogProps) {
     if (kind === "remote-http") {
       const config = draftConfig as RemoteHttpDraftConfig;
       nodeScript = `import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+async function safeList(run, fallback) {
+  try {
+    return await run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("MCP error -32601")) {
+      return fallback;
+    }
+    throw error;
+  }
+}
 async function main() {
-  const transport = new SSEClientTransport(new URL(${JSON.stringify(config.endpoint || "http://127.0.0.1")}));
+  const endpoint = new URL(${JSON.stringify(config.endpoint || "http://127.0.0.1/mcp")});
+  const transport = endpoint.pathname.endsWith("/sse")
+    ? new SSEClientTransport(endpoint)
+    : new StreamableHTTPClientTransport(endpoint);
   const client = new Client({ name: "mcp-snapshot", version: "1.0.0" }, { capabilities: {} });
   await client.connect(transport);
   const discovery = {
@@ -284,8 +317,8 @@ async function main() {
     status: "ready",
     error: null,
     tools: (await client.listTools()).tools,
-    resources: (await client.listResources()).resources,
-    prompts: (await client.listPrompts()).prompts,
+    resources: (await safeList(() => client.listResources(), { resources: [] })).resources,
+    prompts: (await safeList(() => client.listPrompts(), { prompts: [] })).prompts,
   };
   console.log(JSON.stringify(discovery, null, 2));
   process.exit(0);
@@ -297,6 +330,17 @@ main().catch(console.error);`;
       const envStr = JSON.stringify(config.env || {});
       nodeScript = `import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+async function safeList(run, fallback) {
+  try {
+    return await run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("MCP error -32601")) {
+      return fallback;
+    }
+    throw error;
+  }
+}
 async function main() {
   const transport = new StdioClientTransport({
     command: ${cmdStr}[0],
@@ -310,8 +354,8 @@ async function main() {
     status: "ready",
     error: null,
     tools: (await client.listTools()).tools,
-    resources: (await client.listResources()).resources,
-    prompts: (await client.listPrompts()).prompts,
+    resources: (await safeList(() => client.listResources(), { resources: [] })).resources,
+    prompts: (await safeList(() => client.listPrompts(), { prompts: [] })).prompts,
   };
   console.log(JSON.stringify(discovery, null, 2));
   process.exit(0);
@@ -339,29 +383,83 @@ main().catch(console.error);`;
       setSeedDiscoveryText(JSON.stringify(discovery, null, 2));
       setSeedDiscoveryError(null);
     } catch (err) {
-      setSeedDiscoveryError(`获取快照失败: ${(err as Error).message}`);
+      setSeedDiscoveryError(formatSnapshotError(err as Error));
     } finally {
       setFetchingSnapshot(false);
     }
   }
 
-  // 处理文件上传（单文件托管）
-  function handleFileUpload(file: File) {
-    const detectedRuntime = detectRuntimeFromFileName(file.name);
-    const baseName = file.name.replace(/\.[^.]+$/, "");
+  function applyImportedDraft(candidate: ImportedSourceCandidate) {
+    applySourceToForm(candidate, {
+      setId,
+      setName,
+      setKind,
+      setDraftConfig,
+      setSeedDiscoveryText,
+    });
+  }
 
+  function handleImportInputChange(value: string) {
+    setImportText(value);
+    if (!value.trim()) {
+      setDetectedImport(null);
+      setImportError(null);
+      setId("");
+      setName("");
+      setKind("remote-http");
+      setDraftConfig(createDefaultSourceConfig("remote-http"));
+      return;
+    }
+
+    try {
+      const candidate = parseImportedSources(value)[0] ?? null;
+      if (!candidate) {
+        setDetectedImport(null);
+        setImportError("未识别到可用来源，请粘贴地址、命令、配置或脚本。");
+        setId("");
+        setName("");
+        setKind("remote-http");
+        setDraftConfig(createDefaultSourceConfig("remote-http"));
+        return;
+      }
+
+      setDetectedImport(candidate);
+      setImportError(null);
+      applyImportedDraft(candidate);
+    } catch (error) {
+      setDetectedImport(null);
+      setImportError((error as Error).message || "配置解析失败");
+      setId("");
+      setName("");
+      setKind("remote-http");
+      setDraftConfig(createDefaultSourceConfig("remote-http"));
+    }
+  }
+
+  function handleFileUpload(file: File) {
     const reader = new FileReader();
     reader.onload = () => {
       const content = reader.result as string;
+      if (!content.trim()) {
+        setImportError("脚本内容为空，请重新选择文件。");
+        return;
+      }
+
+      if (!isEdit) {
+        const candidate = buildHostedSingleFileCandidate(file.name, content);
+        setDetectedImport(candidate);
+        setImportText("");
+        setImportError(null);
+        applyImportedDraft(candidate);
+        return;
+      }
+
       setDraftConfig((current) => ({
         ...(current as HostedSingleFileDraftConfig),
         fileName: file.name,
-        runtime: detectedRuntime,
+        runtime: detectRuntimeFromFileName(file.name),
         source: content,
       }));
-      // 自动填充 name 和 id（仅在空值时）
-      if (!name) setName(baseName);
-      if (!id) setId(baseName);
     };
     reader.readAsText(file);
   }
@@ -380,27 +478,22 @@ main().catch(console.error);`;
     let payloadConfig = draftConfig;
     let payloadSeed = seedDiscovery;
 
-    if (importText.trim()) {
-      try {
-        const candidates = parseImportedSources(importText);
-        if (candidates.length === 0) {
-          setImportError("未识别到可导入来源");
-          return;
-        }
-        setImportError(null);
-        const c = selectedImportedId
-          ? candidates.find((x) => x.id === selectedImportedId) || candidates[0]
-          : candidates[0];
-        payloadId = c.id;
-        payloadName = c.name;
-        payloadKind = c.kind;
-        payloadConfig = c.config;
-        if (c.seedDiscovery) {
-          payloadSeed = c.seedDiscovery;
-        }
-      } catch (error) {
-        setImportError((error as Error).message || "配置解析失败");
+    if (!isEdit) {
+      if (!detectedImport) {
+        setImportError("未识别到可用来源，请先粘贴配置或上传脚本。");
         return;
+      }
+
+      payloadId = detectedImport.kind === "remote-http"
+        ? buildSourceIdFromName(name || detectedImport.name, detectedImport.id)
+        : detectedImport.id;
+      payloadName = detectedImport.kind === "remote-http"
+        ? (name.trim() || detectedImport.name)
+        : detectedImport.name;
+      payloadKind = detectedImport.kind;
+      payloadConfig = detectedImport.config;
+      if (detectedImport.seedDiscovery) {
+        payloadSeed = detectedImport.seedDiscovery;
       }
     }
 
@@ -419,6 +512,7 @@ main().catch(console.error);`;
   const stdioConfig = kind === "local-stdio" ? draftConfig as LocalStdioDraftConfig : null;
   const hostedNpmConfig = kind === "hosted-npm" ? draftConfig as HostedNpmDraftConfig : null;
   const hostedSingleFileConfig = kind === "hosted-single-file" ? draftConfig as HostedSingleFileDraftConfig : null;
+  const canCopyLocalScript = kind === "remote-http" || kind === "local-stdio";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
@@ -433,169 +527,181 @@ main().catch(console.error);`;
       >
         <h2 className="text-[15px] font-semibold text-[#111]">{isEdit ? "编辑来源" : "新增来源"}</h2>
 
-        <div className="rounded-lg border border-[#eaeaea] bg-[#fafafa] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-[#111]">粘贴配置</p>
-          </div>
-
-          <textarea
-            value={importText}
-            onChange={(e) => {
-              setImportText(e.target.value);
-              if (importError) {
-                setImportError(null);
-              }
-            }}
-            className="field-textarea mt-3 min-h-[144px] font-mono text-xs"
-            placeholder={`{"mcpServers":{"exa":{"url":"https://example.com/mcp"}}}\n\n[mcp_servers.exa]\nurl = "https://example.com/mcp"`}
-          />
-
-          {importError ? <p className="mt-3 text-[13px] text-[#e00]">{importError}</p> : null}
-        </div>
-
-        <label className="block">
-          <span className="field-label">类型</span>
-          <Select
-            value={kind}
-            onValueChange={(val) => {
-              const nextKind = val as SourceKind;
-              setKind(nextKind);
-              setDraftConfig(createDefaultSourceConfig(nextKind));
-            }}
-            disabled={isEdit}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="选择类型" />
-            </SelectTrigger>
-            <SelectContent>
-              {SOURCE_KIND_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="field-help">{SOURCE_KIND_HINTS[kind]}</p>
-        </label>
-
-        {kind === "remote-http" && (
-          <label className="block">
-            <span className="field-label">Endpoint</span>
-            <input
-              value={remoteConfig?.endpoint ?? ""}
-              onChange={(e) => setDraftConfig((current) => ({ ...(current as RemoteHttpDraftConfig), endpoint: e.target.value }))}
-              className="field-input"
-              placeholder="https://..."
-              required
-            />
-          </label>
-        )}
-
-        {kind === "local-stdio" && (
-          <label className="block">
-            <span className="field-label">命令</span>
-            <input
-              value={formatCommandText(stdioConfig?.command)}
-              onChange={(e) => setDraftConfig((current) => ({ ...(current as LocalStdioDraftConfig), command: parseCommandText(e.target.value) }))}
-              className="field-input"
-              placeholder="npx -y @mcp/server"
-              required
-            />
-            <p className="field-help">填写完整启动命令，平台会在需要时拉起进程并通过 stdin/stdout 通信。</p>
-          </label>
-        )}
-
-        {kind === "hosted-npm" && (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="field-label">包名</span>
+        {!isEdit ? (
+          <div className="rounded-lg border border-[#eaeaea] bg-[#fafafa] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#111]">粘贴配置或脚本</p>
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-[#d9d9d9] bg-white px-3 py-1.5 text-[12px] font-medium text-[#333] transition hover:border-[#111] hover:text-[#111]">
+                <UploadIcon className="h-3.5 w-3.5" />
+                上传脚本
                 <input
-                  value={hostedNpmConfig?.packageName ?? ""}
-                  onChange={(e) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), packageName: e.target.value }))}
+                  type="file"
+                  accept=".ts,.tsx,.mts,.js,.mjs,.cjs,.py,.sh"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileUpload(file);
+                  }}
+                />
+              </label>
+            </div>
+
+            <textarea
+              value={importText}
+              onChange={(e) => handleImportInputChange(e.target.value)}
+              className="field-textarea mt-3 min-h-[176px] font-mono text-xs"
+              placeholder={`{"idea":{"url":"http://127.0.0.1:64342/stream"}}\n\nhttps://example.com/mcp\n\nnpx -y @scope/server\n\n[mcp_servers.demo]\nurl = "https://example.com/mcp"\n\n\`\`\`ts\nimport { Server } from "@modelcontextprotocol/sdk/server/index.js"\n\`\`\``}
+            />
+
+            {detectedImport ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <StatusBadge tone={kindTone(detectedImport.kind)}>{formatSourceKindLabel(detectedImport.kind)}</StatusBadge>
+                <span className="text-[12px] text-[#666]">{describeImportedCandidate(detectedImport)}</span>
+              </div>
+            ) : null}
+
+            {detectedImport?.kind === "remote-http" ? (
+              <label className="mt-3 block">
+                <span className="field-label">名称</span>
+                <input
+                  value={name}
+                  onChange={(e) => {
+                    const nextName = e.target.value;
+                    setName(nextName);
+                    setId(buildSourceIdFromName(nextName, detectedImport.id));
+                  }}
                   className="field-input"
-                  placeholder="@scope/package"
+                  placeholder="给这个 HTTP 来源起个名字"
+                />
+              </label>
+            ) : null}
+
+            {importError ? <p className="mt-3 text-[13px] text-[#e00]">{importError}</p> : null}
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+              <label className="block">
+                <span className="field-label">名称</span>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="field-input"
+                  placeholder="来源名称"
                   required
                 />
               </label>
-              <label className="block">
-                <span className="field-label">bin</span>
-                <input
-                  value={hostedNpmConfig?.binName ?? ""}
-                  onChange={(e) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), binName: e.target.value }))}
-                  className="field-input"
-                  placeholder="可选"
-                />
-              </label>
-            </div>
-            <p className="field-help">平台会自动安装此包并持久化管理进程，在 Hosted 页面可控制启停与查看日志。与「本地命令」不同的是，npm 托管由平台管控进程生命周期，支持自动启动和重启。</p>
-          </>
-        )}
-
-        {kind === "hosted-single-file" && (
-          <>
-            {/* 文件上传区域 */}
-            <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-[#eaeaea] bg-[#fafafa] px-6 py-5 text-center transition hover:border-[#999] hover:bg-white">
-              <UploadIcon className="h-5 w-5 text-[#999]" />
-              <span className="text-[13px] font-medium text-[#666]">
-                {hostedSingleFileConfig?.source ? hostedSingleFileConfig.fileName : "选择脚本文件"}
-              </span>
-              <span className="text-[11px] text-[#999]">
-                支持 .ts / .js / .mjs / .cjs / .py / .sh，自动识别运行时
-              </span>
-              <input
-                type="file"
-                accept=".ts,.tsx,.mts,.js,.mjs,.cjs,.py,.sh"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileUpload(file);
-                }}
-              />
-            </label>
-
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="field-label">文件名</span>
-                <input
-                  value={hostedSingleFileConfig?.fileName ?? ""}
-                  onChange={(e) => {
-                    const fileName = e.target.value;
-                    setDraftConfig((current) => ({
-                      ...(current as HostedSingleFileDraftConfig),
-                      fileName,
-                      runtime: detectRuntimeFromFileName(fileName),
-                    }));
-                  }}
-                  className="field-input"
-                  placeholder="server.ts"
-                />
-              </label>
-              <label className="block">
-                <span className="field-label">运行时</span>
-                <Select
-                  value={hostedSingleFileConfig?.runtime ?? "node"}
-                  onValueChange={(val) => setDraftConfig((current) => ({ ...(current as HostedSingleFileDraftConfig), runtime: val as HostedSingleFileDraftConfig["runtime"] }))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择运行时" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="node">Node</SelectItem>
-                    <SelectItem value="tsx">TSX</SelectItem>
-                    <SelectItem value="python">Python</SelectItem>
-                    <SelectItem value="bash">Bash</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-            </div>
-
-            {/* 已上传文件内容预览（只读摘要） */}
-            {hostedSingleFileConfig?.source ? (
-              <div className="rounded-lg border border-[#eaeaea] bg-[#fafafa] px-4 py-3">
-                <p className="text-[12px] text-[#999]">
-                  已加载 {hostedSingleFileConfig.source.split("\n").length} 行，
-                  {(new Blob([hostedSingleFileConfig.source]).size / 1024).toFixed(1)} KB
-                </p>
+              <div className="block">
+                <span className="field-label">类型</span>
+                <div className="field-input flex items-center">
+                  <StatusBadge tone={kindTone(kind)}>{formatSourceKindLabel(kind)}</StatusBadge>
+                </div>
               </div>
+            </div>
+
+            {kind === "remote-http" ? (
+              <label className="block">
+                <span className="field-label">地址</span>
+                <input
+                  value={remoteConfig?.endpoint ?? ""}
+                  onChange={(e) => setDraftConfig((current) => ({ ...(current as RemoteHttpDraftConfig), endpoint: e.target.value }))}
+                  className="field-input"
+                  placeholder="https://..."
+                  required
+                />
+              </label>
+            ) : null}
+
+            {kind === "local-stdio" ? (
+              <label className="block">
+                <span className="field-label">启动命令</span>
+                <input
+                  value={formatCommandText(stdioConfig?.command)}
+                  onChange={(e) => setDraftConfig((current) => ({ ...(current as LocalStdioDraftConfig), command: parseCommandText(e.target.value) }))}
+                  className="field-input"
+                  placeholder="npx -y @mcp/server"
+                  required
+                />
+              </label>
+            ) : null}
+
+            {kind === "hosted-npm" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="field-label">包名</span>
+                  <input
+                    value={hostedNpmConfig?.packageName ?? ""}
+                    onChange={(e) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), packageName: e.target.value }))}
+                    className="field-input"
+                    placeholder="@scope/package"
+                    required
+                  />
+                </label>
+                <label className="block">
+                  <span className="field-label">入口命令</span>
+                  <input
+                    value={hostedNpmConfig?.binName ?? ""}
+                    onChange={(e) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), binName: e.target.value }))}
+                    className="field-input"
+                    placeholder="mcp-server"
+                    required
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            {kind === "hosted-single-file" ? (
+              <>
+                <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-[#eaeaea] bg-[#fafafa] px-6 py-5 text-center transition hover:border-[#999] hover:bg-white">
+                  <UploadIcon className="h-5 w-5 text-[#999]" />
+                  <span className="text-[13px] font-medium text-[#666]">
+                    {hostedSingleFileConfig?.source ? hostedSingleFileConfig.fileName : "选择脚本文件"}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".ts,.tsx,.mts,.js,.mjs,.cjs,.py,.sh"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleFileUpload(file);
+                    }}
+                  />
+                </label>
+
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+                  <label className="block">
+                    <span className="field-label">文件名</span>
+                    <input
+                      value={hostedSingleFileConfig?.fileName ?? ""}
+                      onChange={(e) => {
+                        const fileName = e.target.value;
+                        setDraftConfig((current) => ({
+                          ...(current as HostedSingleFileDraftConfig),
+                          fileName,
+                          runtime: detectRuntimeFromFileName(fileName),
+                        }));
+                      }}
+                      className="field-input"
+                      placeholder="server.ts"
+                    />
+                  </label>
+                  <div className="block">
+                    <span className="field-label">运行方式</span>
+                    <div className="field-input flex items-center">
+                      <StatusBadge tone="neutral">{hostedSingleFileConfig?.runtime ?? "node"}</StatusBadge>
+                    </div>
+                  </div>
+                </div>
+
+                {hostedSingleFileConfig?.source ? (
+                  <div className="rounded-lg border border-[#eaeaea] bg-[#fafafa] px-4 py-3">
+                    <p className="text-[12px] text-[#999]">
+                      已加载 {hostedSingleFileConfig.source.split("\n").length} 行，
+                      {(new Blob([hostedSingleFileConfig.source]).size / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </>
         )}
@@ -604,28 +710,29 @@ main().catch(console.error);`;
           <summary className="cursor-pointer list-none text-sm font-medium text-[#444]">离线快照</summary>
           <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-[12px] text-[#999]">从服务端实时获取能力快照，或手动粘贴 JSON。</p>
+              <p className="text-[12px] text-[#999]">可直接粘贴快照 JSON。</p>
               <div className="flex gap-2">
-                {(kind === "remote-http" || kind === "local-stdio") && (
+                {canCopyLocalScript && (
                   <button
                     type="button"
                     onClick={() => void copyLocalScript()}
                     className={`button-secondary gap-1.5 text-xs ${copiedScript ? "!border-emerald-200 !bg-emerald-50 !text-emerald-700" : ""}`}
-                    title="在远端受限时，复制此脚本到本地执行打印快照 JSON"
                   >
                     {copiedScript ? <CheckIcon className="h-3 w-3" /> : <CopyIcon className="h-3 w-3" />}
                     {copiedScript ? "已复制脚本" : "复制本地读取脚本"}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => void fetchSnapshot()}
-                  disabled={!id.trim() || fetchingSnapshot}
-                  className="button-secondary gap-1.5 text-xs"
-                >
-                  <RefreshIcon className={`h-3 w-3 ${fetchingSnapshot ? "animate-spin" : ""}`} />
-                  {fetchingSnapshot ? "获取中..." : "获取快照"}
-                </button>
+                {isEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => void fetchSnapshot()}
+                    disabled={!id.trim() || fetchingSnapshot}
+                    className="button-secondary gap-1.5 text-xs"
+                  >
+                    <RefreshIcon className={`h-3 w-3 ${fetchingSnapshot ? "animate-spin" : ""}`} />
+                    {fetchingSnapshot ? "获取中..." : "获取快照"}
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -649,7 +756,11 @@ main().catch(console.error);`;
 
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className="button-secondary">取消</button>
-          <button type="submit" disabled={saveMutation.isPending || sourceQuery.isLoading} className="button-primary">
+          <button
+            type="submit"
+            disabled={saveMutation.isPending || sourceQuery.isLoading || (!isEdit && !detectedImport)}
+            className="button-primary"
+          >
             {saveMutation.isPending ? (isEdit ? "保存中..." : "创建中...") : isEdit ? "保存" : "创建"}
           </button>
         </div>
@@ -765,6 +876,10 @@ export function SourcesPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const workspaceQuery = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: api.listWorkspaces,
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["console-sources"],
@@ -811,6 +926,7 @@ export function SourcesPage() {
 
   const { items, summary } = data!;
   const hasNpmSources = items.some((item) => item.kind === "hosted-npm");
+  const workspace = workspaceQuery.data?.find((item) => item.status === "active") ?? workspaceQuery.data?.[0] ?? null;
 
   return (
     <motion.div 
@@ -822,7 +938,7 @@ export function SourcesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-[20px] font-semibold tracking-tight text-[#111]">Sources</h1>
         <div className="flex items-center gap-2">
-          <ClientConfigQuickActions />
+          <ClientConfigQuickActions workspaceId={workspace?.id ?? null} />
           <button
             onClick={() => refreshAllMutation.mutate()}
             disabled={refreshAllMutation.isPending}
@@ -847,6 +963,8 @@ export function SourcesPage() {
           { label: "托管运行", value: String(summary.hostedRunningCount) },
         ]}
       />
+
+      <ExportProfilesSection workspaceId={workspace?.id ?? null} sources={items} />
 
       {/* npm 托管迁移提示 */}
       {hasNpmSources ? (

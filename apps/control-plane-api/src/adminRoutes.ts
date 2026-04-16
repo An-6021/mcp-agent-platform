@@ -104,6 +104,88 @@ export function registerAdminRoutes(server: FastifyInstance, options: AdminRoute
     return ok({ workspace, draft, publishedConfig, tokens });
   });
 
+  server.get("/admin/workspaces/:id/exports", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const workspace = await repo.getWorkspace(id);
+    if (!workspace) {
+      reply.code(404);
+      return fail("workspace_not_found", `Workspace "${id}" not found`);
+    }
+
+    const items = await repo.listExports(id);
+    return ok({ items });
+  });
+
+  server.post("/admin/workspaces/:id/exports", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body as { name?: string; serverName?: string; enabledSourceIds?: string[] } | null) ?? {};
+
+    const workspace = await repo.getWorkspace(id);
+    if (!workspace) {
+      reply.code(404);
+      return fail("workspace_not_found", `Workspace "${id}" not found`);
+    }
+
+    if (!body.name?.trim() || !body.serverName?.trim()) {
+      reply.code(400);
+      return fail("invalid_input", "name and serverName are required");
+    }
+
+    try {
+      const item = await repo.createExport(id, {
+        name: body.name,
+        serverName: body.serverName,
+        enabledSourceIds: body.enabledSourceIds ?? [],
+      });
+      reply.code(201);
+      return ok({ item });
+    } catch (error) {
+      reply.code(500);
+      return fail("export_create_failed", (error as Error).message);
+    }
+  });
+
+  server.put("/admin/workspaces/:id/exports/:exportId", async (request, reply) => {
+    const { id, exportId } = request.params as { id: string; exportId: string };
+    const body = (request.body as { name?: string; serverName?: string; enabledSourceIds?: string[] } | null) ?? {};
+
+    const workspace = await repo.getWorkspace(id);
+    if (!workspace) {
+      reply.code(404);
+      return fail("workspace_not_found", `Workspace "${id}" not found`);
+    }
+
+    try {
+      const item = await repo.updateExport(id, exportId, {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.serverName !== undefined ? { serverName: body.serverName } : {}),
+        ...(body.enabledSourceIds !== undefined ? { enabledSourceIds: body.enabledSourceIds } : {}),
+      });
+      return ok({ item });
+    } catch (error) {
+      reply.code(404);
+      return fail("export_not_found", (error as Error).message);
+    }
+  });
+
+  server.delete("/admin/workspaces/:id/exports/:exportId", async (request, reply) => {
+    const { id, exportId } = request.params as { id: string; exportId: string };
+
+    const workspace = await repo.getWorkspace(id);
+    if (!workspace) {
+      reply.code(404);
+      return fail("workspace_not_found", `Workspace "${id}" not found`);
+    }
+
+    try {
+      await repo.deleteExport(id, exportId);
+      return ok({ deleted: true as const });
+    } catch (error) {
+      reply.code(404);
+      return fail("export_not_found", (error as Error).message);
+    }
+  });
+
   server.get("/admin/workspaces/:id/capabilities", async (request, reply) => {
     const { id } = request.params as { id: string };
     const workspace = await repo.getWorkspace(id);
@@ -261,6 +343,30 @@ export function registerAdminRoutes(server: FastifyInstance, options: AdminRoute
     } catch (error) {
       reply.code(404);
       return fail("token_not_found", (error as Error).message);
+    }
+  });
+
+  server.post("/admin/workspaces/:id/exports/:exportId/token", async (request, reply) => {
+    const { id, exportId } = request.params as { id: string; exportId: string };
+    const body = (request.body as { label?: string } | null) ?? {};
+
+    const workspace = await repo.getWorkspace(id);
+    if (!workspace) {
+      reply.code(404);
+      return fail("workspace_not_found", `Workspace "${id}" not found`);
+    }
+
+    try {
+      const result = await repo.createExportToken(id, exportId, {
+        label: body.label,
+      });
+      return ok({
+        token: result.token,
+        meta: result.meta,
+      });
+    } catch (error) {
+      reply.code(404);
+      return fail("export_token_create_failed", (error as Error).message);
     }
   });
 }
