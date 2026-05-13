@@ -1,7 +1,7 @@
 import {
   parseWorkspaceConfig,
   type WorkspaceConfig,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 import {
   readCachedWorkspaceConfig,
   resolveCachePaths,

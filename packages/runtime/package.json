@@ -1,5 +1,5 @@
 {
-  "name": "@mcp-agent-platform/runtime",
+  "name": "@a1ua/mcp-hub-runtime",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "lint": "echo \"(no lint configured)\""
   },
   "dependencies": {
-    "@mcp-agent-platform/shared": "workspace:*",
+    "@a1ua/mcp-hub-shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.0.0"
   }
 }

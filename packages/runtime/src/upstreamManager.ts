@@ -29,7 +29,7 @@ import {
   type WorkspaceCapabilities,
   type WorkspaceUpstreamCapabilities,
   type UpstreamConfig,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 
 type OptionalCapability = "resources" | "prompts";
 type RuntimeState = "disconnected" | "connecting" | "connected" | "failed";
@@ -767,7 +767,7 @@ async function materializeHostedSingleFile(config: HostedSingleFileUpstreamConfi
       source: config.source,
     }),
   ).slice(0, 16);
-  const workDir = path.join(tmpdir(), "mcp-agent-platform-hosted", sanitizePathSegment(config.id), contentHash);
+  const workDir = path.join(tmpdir(), "mcp-hub-hosted", sanitizePathSegment(config.id), contentHash);
   const filePath = path.join(workDir, fileName);
 
   await mkdir(workDir, { recursive: true });

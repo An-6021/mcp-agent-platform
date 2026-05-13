@@ -7,7 +7,7 @@ import type {
   SourceDiscovery,
   ToolExposure,
   UpdateSourceInput,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 import { HostedProcessManager } from "./hostedProcessManager";
 
 const activeManagers: HostedProcessManager[] = [];

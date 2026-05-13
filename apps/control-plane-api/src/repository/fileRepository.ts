@@ -6,7 +6,7 @@ import {
   type UpstreamConfig,
   WORKSPACE_CONFIG_SCHEMA_VERSION,
   parseWorkspaceConfig,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 import type {
   CreateWorkspaceExportInput,
   Workspace,
@@ -20,7 +20,7 @@ import type {
   PublishInput,
   UpdateWorkspaceExportInput,
   WorkspaceRepository,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 

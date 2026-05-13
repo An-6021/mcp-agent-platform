@@ -11,7 +11,7 @@ import type {
   WorkspaceRepository,
   WorkspaceSummary,
   WorkspaceTokenMeta,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 import { createControlPlaneServer } from "./server";
 
 let server: ReturnType<typeof createControlPlaneServer> | null = null;

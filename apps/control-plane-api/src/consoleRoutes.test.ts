@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SourceDiscovery } from "@mcp-agent-platform/shared";
+import type { SourceDiscovery } from "@a1ua/mcp-hub-shared";
 import { mergeDiscoveryWithPrevious } from "./consoleRoutes";
 
 describe("mergeDiscoveryWithPrevious", () => {

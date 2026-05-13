@@ -5,7 +5,7 @@ import {
   parseCachedWorkspaceConfig,
   type CachedWorkspaceConfig,
   type WorkspaceConfig,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 
 export type CachePaths = {
   baseDir: string;

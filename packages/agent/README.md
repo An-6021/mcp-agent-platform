@@ -6,7 +6,7 @@
 
 当前发布内容只有本地 npm agent。
 
-- 配套源码：<https://github.com/aiua-dev/mcp-agent-platform>
+- 配套源码：<https://github.com/aiua-dev/mcp-hub>
 
 - 已有：
   - 本地 CLI agent

@@ -1,17 +1,17 @@
 {
   "name": "@a1ua/mcp-hub",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A local stdio MCP agent that loads personalized remote config and connects to upstream MCP services.",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://github.com/aiua-dev/mcp-agent-platform#readme",
+  "homepage": "https://github.com/aiua-dev/mcp-hub#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aiua-dev/mcp-agent-platform.git",
+    "url": "git+https://github.com/aiua-dev/mcp-hub.git",
     "directory": "packages/agent"
   },
   "bugs": {
-    "url": "https://github.com/aiua-dev/mcp-agent-platform/issues"
+    "url": "https://github.com/aiua-dev/mcp-hub/issues"
   },
   "files": [
     "dist/cli.js",
@@ -19,8 +19,7 @@
     "LICENSE"
   ],
   "bin": {
-    "mcp-hub": "dist/cli.js",
-    "mcp-agent-platform": "dist/cli.js"
+    "mcp-hub": "dist/cli.js"
   },
   "keywords": [
     "mcp",
@@ -40,8 +39,8 @@
     "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "devDependencies": {
-    "@mcp-agent-platform/runtime": "workspace:*",
-    "@mcp-agent-platform/shared": "workspace:*"
+    "@a1ua/mcp-hub-runtime": "workspace:*",
+    "@a1ua/mcp-hub-shared": "workspace:*"
   },
   "scripts": {
     "build": "tsup",

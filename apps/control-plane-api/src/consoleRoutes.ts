@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { HostedProcessManager } from "./hostedProcessManager";
-import { inspectWorkspaceCapabilities } from "@mcp-agent-platform/runtime";
+import { inspectWorkspaceCapabilities } from "@a1ua/mcp-hub-runtime";
 import {
   buildWorkspaceConfigFromSources,
   defaultExposedName,
@@ -20,7 +20,7 @@ import {
   type ToolListItem,
   type UpdateSourceInput,
   type UpdateToolExposureInput,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 
 // 判断是否为网络连接类错误（远程不可达、连接拒绝等）
 const NETWORK_ERROR_PATTERNS = ["fetch failed", "ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "socket hang up", "network"];

@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { inspectWorkspaceCapabilities } from "@mcp-agent-platform/runtime";
+import { inspectWorkspaceCapabilities } from "@a1ua/mcp-hub-runtime";
 import {
   WORKSPACE_CONFIG_SCHEMA_VERSION,
   parseWorkspaceConfig,
   type Workspace,
   type WorkspaceDraft,
   type WorkspaceRepository,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 
 type AdminRouteOptions = {
   repo: WorkspaceRepository;

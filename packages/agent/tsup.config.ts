@@ -8,7 +8,7 @@ export default defineConfig({
   clean: true,
   target: "es2022",
   platform: "node",
-  noExternal: [/@mcp-agent-platform\/.*/, /^zod$/],
+  noExternal: [/@a1ua\/mcp-hub-.*/, /^zod$/],
   banner: {
     js: "#!/usr/bin/env node",
   },

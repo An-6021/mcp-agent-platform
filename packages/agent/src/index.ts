@@ -1,4 +1,4 @@
-import { runAgentRuntime } from "@mcp-agent-platform/runtime";
+import { runAgentRuntime } from "@a1ua/mcp-hub-runtime";
 import { loadWorkspaceConfig, type LoadWorkspaceConfigOptions } from "./loadWorkspaceConfig";
 
 export async function runAgent(options: LoadWorkspaceConfigOptions): Promise<void> {

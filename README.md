@@ -6,7 +6,7 @@
 - 远程 `control plane`：负责 MCP 来源配置、工具暴露编排和部分托管能力
 
 配套 npm 包：`@a1ua/mcp-hub`
-配套源码：<https://github.com/aiua-dev/mcp-agent-platform>
+配套源码：<https://github.com/aiua-dev/mcp-hub>
 
 ## 当前方向
 

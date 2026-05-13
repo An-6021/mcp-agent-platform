@@ -1,4 +1,4 @@
-import type { SourceDiscovery } from "@mcp-agent-platform/shared";
+import type { SourceDiscovery } from "@a1ua/mcp-hub-shared";
 import idaProMcpDiscoverySeed from "./builtin/ida-pro-mcp.discovery.json";
 
 const BUILTIN_DISCOVERY_SEEDS: Record<string, SourceDiscovery> = {

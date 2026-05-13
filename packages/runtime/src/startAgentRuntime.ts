@@ -13,7 +13,7 @@ import {
   type GetPromptRequest,
   type ReadResourceRequest,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { WorkspaceConfig } from "@mcp-agent-platform/shared";
+import type { WorkspaceConfig } from "@a1ua/mcp-hub-shared";
 import { DiscoveryCatalog } from "./discoveryCatalog";
 import { UpstreamManager } from "./upstreamManager";
 

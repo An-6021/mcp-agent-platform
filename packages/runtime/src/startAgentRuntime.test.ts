@@ -14,7 +14,7 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { decodeResourceUri, type WorkspaceConfig } from "@mcp-agent-platform/shared";
+import { decodeResourceUri, type WorkspaceConfig } from "@a1ua/mcp-hub-shared";
 import { launchAgentRuntime, type AgentRuntimeHandle } from "./startAgentRuntime";
 
 type HttpUpstreamHandle = {
@@ -22,7 +22,7 @@ type HttpUpstreamHandle = {
   close: () => Promise<void>;
 };
 
-const META_TOOL_NAME = "mcp_agent_platform_describe_services";
+const META_TOOL_NAME = "mcp_hub_describe_services";
 const ACTION_MANUAL_URI = "mcp-agent-meta://workspace/action-manual";
 const SERVICE_INDEX_URI = "mcp-agent-meta://services/index";
 const SERVICE_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/capabilities";

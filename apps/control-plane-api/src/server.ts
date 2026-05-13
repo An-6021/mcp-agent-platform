@@ -9,8 +9,8 @@ import {
   type WorkspaceExportProfile,
   type WorkspaceConfig,
   type WorkspaceRepository,
-} from "@mcp-agent-platform/shared";
-import { launchAgentRuntime, StreamableHTTPServerTransport, type AgentRuntimeHandle } from "@mcp-agent-platform/runtime";
+} from "@a1ua/mcp-hub-shared";
+import { launchAgentRuntime, StreamableHTTPServerTransport, type AgentRuntimeHandle } from "@a1ua/mcp-hub-runtime";
 
 export type ControlPlaneServerOptions = {
   repo: WorkspaceRepository;

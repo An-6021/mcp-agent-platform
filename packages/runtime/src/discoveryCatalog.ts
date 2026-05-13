@@ -5,8 +5,8 @@ import type {
   ListToolsResult,
   ReadResourceResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import { encodeResourceUri, prefixName, type UpstreamConfig, type WorkspaceCapabilities, type WorkspaceConfig } from "@mcp-agent-platform/shared";
-import type { WorkspaceUpstreamCapabilities } from "@mcp-agent-platform/shared";
+import { encodeResourceUri, prefixName, type UpstreamConfig, type WorkspaceCapabilities, type WorkspaceConfig } from "@a1ua/mcp-hub-shared";
+import type { WorkspaceUpstreamCapabilities } from "@a1ua/mcp-hub-shared";
 import { UpstreamManager } from "./upstreamManager";
 
 const META_URI_SCHEME = "mcp-agent-meta:";
@@ -15,8 +15,8 @@ const WORKSPACE_SUMMARY_URI = "mcp-agent-meta://workspace/summary";
 const SERVICES_INDEX_URI = "mcp-agent-meta://services/index";
 const SERVICES_CAPABILITIES_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/capabilities";
 const SERVICES_CONFIG_TEMPLATE_URI = "mcp-agent-meta://services/{serviceId}/config-redacted";
-const META_TOOL_NAME = "mcp_agent_platform_describe_services";
-const LEGACY_META_TOOL_NAME = "mcp_agent_platform.describe_services";
+const META_TOOL_NAME = "mcp_hub_describe_services";
+const LEGACY_META_TOOL_NAME = "mcp_agent_platform_describe_services";
 
 type MetaReadTarget =
   | { kind: "action-manual" }

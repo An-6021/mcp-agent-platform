@@ -1,4 +1,4 @@
-import type { WorkspaceCapabilities, WorkspaceConfig } from "@mcp-agent-platform/shared";
+import type { WorkspaceCapabilities, WorkspaceConfig } from "@a1ua/mcp-hub-shared";
 import { UpstreamManager } from "./upstreamManager";
 
 export async function inspectWorkspaceCapabilities(config: WorkspaceConfig): Promise<WorkspaceCapabilities> {

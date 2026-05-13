@@ -16,7 +16,7 @@ import type {
   HostedRuntimeState,
   LogEntry,
   Source,
-} from "@mcp-agent-platform/shared";
+} from "@a1ua/mcp-hub-shared";
 
 // ── 类型 ────────────────────────────────────────────────────────────
 
@@ -137,7 +137,7 @@ async function resolveLaunchConfig(source: Source): Promise<LaunchConfig> {
     // 物化单文件到临时目录
     const fileName = path.basename(config.fileName.trim()) || getDefaultFileName(config.runtime);
     const contentHash = sha256(JSON.stringify({ fileName, runtime: config.runtime, source: config.source })).slice(0, 16);
-    const workDir = path.join(tmpdir(), "mcp-agent-platform-hosted", sanitizePathSegment(source.id), contentHash);
+    const workDir = path.join(tmpdir(), "mcp-hub-hosted", sanitizePathSegment(source.id), contentHash);
     const filePath = path.join(workDir, fileName);
 
     await mkdir(workDir, { recursive: true });
