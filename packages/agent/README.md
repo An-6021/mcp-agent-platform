@@ -6,6 +6,8 @@
 
 当前发布内容只有本地 npm agent。
 
+- 配套源码：<https://github.com/aiua-dev/mcp-agent-platform>
+
 - 已有：
   - 本地 CLI agent
   - 仓库内配套的 control-plane API
@@ -17,27 +19,28 @@
 ## 安装
 
 ```bash
-npm install -g @sudau/mcp-hub
+npm install -g @a1ua/mcp-hub
 ```
 
 或直接使用：
 
 ```bash
-npx -y @sudau/mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+npx -y @a1ua/mcp-hub --base-url https://your-control-plane.example.com --workspace mcp-hub --token your-token
 ```
 
 如果是给 Codex 接入，推荐直接使用 Codex 官方支持的 `stdio` 配置：
 
 ```bash
-codex mcp add mcp-hub -- npx -y @sudau/mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+codex mcp add mcp-hub -- npx -y @a1ua/mcp-hub --base-url https://your-control-plane.example.com --workspace mcp-hub --token your-token
 ```
 
 或写入 `~/.codex/config.toml`：
 
 ```toml
 [mcp_servers."mcp-hub"]
+type = "stdio"
 command = "/bin/sh"
-args = ["-lc", "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; if [ -d \"$HOME/.nvm/versions/node\" ]; then for dir in \"$HOME\"/.nvm/versions/node/*/bin; do [ -d \"$dir\" ] && PATH=\"$dir:$PATH\"; done; fi; exec 'npx' '-y' '@sudau/mcp-hub' '--base-url' 'https://mcp.a1yu.com' '--workspace' 'mcp-hub' '--token' 'your-token'"]
+args = ["-lc", "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; if [ -d \"$HOME/.nvm/versions/node\" ]; then for dir in \"$HOME\"/.nvm/versions/node/*/bin; do [ -d \"$dir\" ] && PATH=\"$dir:$PATH\"; done; fi; exec 'npx' '-y' '@a1ua/mcp-hub' '--base-url' 'https://your-control-plane.example.com' '--workspace' 'mcp-hub' '--token' 'your-token'"]
 ```
 
 ## 用法
@@ -45,20 +48,20 @@ args = ["-lc", "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; if [ -d \"$HOME
 推荐方式一：
 
 ```bash
-mcp-hub --base-url https://mcp.a1yu.com --workspace mcp-hub --token your-token
+mcp-hub --base-url https://your-control-plane.example.com --workspace mcp-hub --token your-token
 ```
 
 推荐方式二：
 
 ```bash
-mcp-hub --config-url https://mcp.a1yu.com/v1/workspaces/mcp-hub/config --workspace mcp-hub --token your-token
+mcp-hub --config-url https://your-control-plane.example.com/v1/workspaces/mcp-hub/config --workspace mcp-hub --token your-token
 ```
 
 ## 参数
 
 - `--base-url`
-  - 控制面基础地址，例如 `https://mcp.a1yu.com`
-  - agent 会自动拼成 `https://mcp.a1yu.com/v1/workspaces/<workspace>/config`
+  - 控制面基础地址，例如 `https://your-control-plane.example.com`
+  - agent 会自动拼成 `https://your-control-plane.example.com/v1/workspaces/<workspace>/config`
 - `--config-url`
   - 完整配置地址，优先级高于基础地址模式
 - `--workspace`

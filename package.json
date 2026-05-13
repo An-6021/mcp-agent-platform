@@ -1,6 +1,15 @@
 {
   "name": "mcp-hub",
   "private": true,
+  "license": "MIT",
+  "homepage": "https://github.com/aiua-dev/mcp-agent-platform#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aiua-dev/mcp-agent-platform.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aiua-dev/mcp-agent-platform/issues"
+  },
   "packageManager": "pnpm@10.4.1",
   "scripts": {
     "dev": "bash ./scripts/bootstrap.sh --run",

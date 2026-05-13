@@ -71,10 +71,10 @@ describe("loadWorkspaceConfig", () => {
 
   it("支持直接使用完整 config-url", () => {
     const resolved = resolveConfigUrl({
-      configUrl: "https://mcp.a1yu.com/v1/workspaces/mcp-hub/config",
+      configUrl: "https://your-control-plane.example.com/v1/workspaces/mcp-hub/config",
       workspaceId: "mcp-hub",
     });
 
-    expect(resolved).toBe("https://mcp.a1yu.com/v1/workspaces/mcp-hub/config");
+    expect(resolved).toBe("https://your-control-plane.example.com/v1/workspaces/mcp-hub/config");
   });
 });

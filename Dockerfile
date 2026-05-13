@@ -11,7 +11,7 @@ COPY apps ./apps
 
 RUN pnpm install --frozen-lockfile
 
-ARG PUBLIC_BASE_URL=https://mcp.a1yu.com
+ARG PUBLIC_BASE_URL=
 ENV MCP_CONTROL_PLANE_PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
 
 RUN pnpm build

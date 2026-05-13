@@ -4,7 +4,7 @@ import { parseAgentCliArgs } from "./cliOptions";
 describe("parseAgentCliArgs", () => {
   it("支持完整 config-url 和 token-env", () => {
     const parsed = parseAgentCliArgs(
-      ["--config-url", "https://mcp.a1yu.com/v1/workspaces/mcp-hub/config", "--workspace", "mcp-hub", "--token-env", "AGENT_TOKEN"],
+      ["--config-url", "https://your-control-plane.example.com/v1/workspaces/mcp-hub/config", "--workspace", "mcp-hub", "--token-env", "AGENT_TOKEN"],
       { AGENT_TOKEN: "secret" },
     );
 
@@ -12,7 +12,7 @@ describe("parseAgentCliArgs", () => {
     if (!parsed.ok) return;
 
     expect(parsed.options).toMatchObject({
-      configUrl: "https://mcp.a1yu.com/v1/workspaces/mcp-hub/config",
+      configUrl: "https://your-control-plane.example.com/v1/workspaces/mcp-hub/config",
       workspaceId: "mcp-hub",
       token: "secret",
     });
@@ -20,7 +20,7 @@ describe("parseAgentCliArgs", () => {
 
   it("支持基础地址模式和旧参数别名", () => {
     const parsed = parseAgentCliArgs(
-      ["--config-base-url", "https://mcp.a1yu.com", "--workspace", "mcp-hub"],
+      ["--config-base-url", "https://your-control-plane.example.com", "--workspace", "mcp-hub"],
       {},
     );
 
@@ -28,7 +28,7 @@ describe("parseAgentCliArgs", () => {
     if (!parsed.ok) return;
 
     expect(parsed.options).toMatchObject({
-      configBaseUrl: "https://mcp.a1yu.com",
+      configBaseUrl: "https://your-control-plane.example.com",
       workspaceId: "mcp-hub",
     });
   });

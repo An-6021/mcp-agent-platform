@@ -59,7 +59,7 @@ export function getExportConfigUrl(workspaceId: string, exportId: string, origin
   return `${getControlPlaneBaseUrl(origin)}/v1/workspaces/${workspaceId}/exports/${exportId}/config`;
 }
 
-const PUBLIC_PACKAGE_NAME = "@sudau/mcp-hub";
+const PUBLIC_PACKAGE_NAME = "@a1ua/mcp-hub";
 
 function buildWorkspaceAgentArgs(workspaceId: string, token?: string): string[] {
   const args = [
@@ -127,6 +127,7 @@ export function buildClientConfigSnippets(options: ClientConfigOptions): ClientC
       fileHint: "~/.codex/config.toml",
       content: [
         `[mcp_servers.${JSON.stringify(serverName)}]`,
+        `type = "stdio"`,
         `command = ${JSON.stringify(CLIENT_SHELL_COMMAND)}`,
         `args = ${JSON.stringify(shellWrappedArgs)}`,
       ].join("\n"),
@@ -163,6 +164,7 @@ export function buildExportClientConfigSnippets(options: ExportClientConfigOptio
       fileHint: "~/.codex/config.toml",
       content: [
         `[mcp_servers.${JSON.stringify(options.serverName)}]`,
+        `type = "stdio"`,
         `command = ${JSON.stringify(CLIENT_SHELL_COMMAND)}`,
         `args = ${JSON.stringify(shellWrappedArgs)}`,
       ].join("\n"),
