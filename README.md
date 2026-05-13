@@ -1,124 +1,73 @@
 # mcp-hub
 
-一个从 0 开始的新项目，目标是把旧版桌面式控制台收敛成两层：
+`mcp-hub` is a lightweight control plane and local `stdio` agent for managing MCP sources across AI coding tools.
 
-- 本地 `stdio agent`：只向 AI 工具暴露一个 MCP 入口
-- 远程 `control plane`：负责 MCP 来源配置、工具暴露编排和部分托管能力
+It lets Codex, Claude Code, OpenCode, and other MCP clients connect to one local agent while the actual upstream MCP services are configured from a remote control plane.
 
-配套 npm 包：`@a1ua/mcp-hub`
-配套源码：<https://github.com/aiua-dev/mcp-hub>
+- npm package: `@a1ua/mcp-hub`
+- Repository: <https://github.com/aiua-dev/mcp-hub>
+- License: MIT
 
-## 当前方向
+## Overview
 
-当前项目更适合按“自用 MCP 聚合控制台”理解，而不是按企业后台理解。
+MCP tools are often installed and configured per client. As the number of tools grows, keeping every local client in sync becomes repetitive and error-prone.
 
-控制面的核心目标已经收敛为三件事：
+`mcp-hub` separates the system into two parts:
 
-- 各个渠道的 MCP 来源聚合
-- 工具暴露层编排
-- 部分 MCP 来源托管运行
+- **Local agent**
+  - Runs as a `stdio` MCP server.
+  - Loads workspace configuration from a control-plane API.
+  - Connects to upstream MCP services from the local machine.
+  - Falls back to cached configuration when the control plane is temporarily unavailable.
+- **Control plane**
+  - Maintains MCP sources, exposed tools, and hosted source definitions.
+  - Provides configuration endpoints for local agents.
+  - Includes a web console for managing sources and copied client configs.
 
-## 一阶段 MVP
+## Features
 
-只做下面几件事：
-
-- 本地 agent 通过 `stdio` 对接 Codex / Claude Code / OpenCode
-- agent 启动时从远程接口拉取聚合配置
-- 配置支持四类上游：
+- One local `stdio` entrypoint for multiple MCP clients.
+- Remote workspace configuration with local cache fallback.
+- Tool naming and exposure control.
+- Support for multiple upstream source types:
   - `direct-http`
   - `local-stdio`
   - `hosted-npm`
   - `hosted-single-file`
-- 远程接口失败时使用本地缓存兜底
-- 控制面围绕 `Sources / Tools / Hosted` 三层收敛
+- Codex-friendly TOML output with explicit `type = "stdio"`.
+- Shell-wrapped `npx` command generation for GUI clients with limited `$PATH`.
+- Optional export profiles for exposing different source sets as separate MCP servers.
 
-## 明确不做
+## Install
 
-- 不做统一中心 HTTP 中转
-- 不做“同步到工具”写配置
-- 不做多租户复杂权限和计费
-- 不做以 workspace 快照、回滚、后台审批为中心的重后台体系
-
-## 目录
-
-- `packages/shared`
-  - 共享配置模型与映射工具
-- `packages/runtime`
-  - 聚合多个上游 MCP 的本地运行时
-- `packages/agent`
-  - 发布到 npm 的本地 CLI agent
-- `apps/control-plane-api`
-  - 控制面 API 与自用控制台后端
-- `apps/control-plane-web`
-  - 自用 MCP 聚合控制台前端
-
-## 文档
-
-- `docs/architecture.md`
-  - 当前整体架构与主链路
-- `docs/product.md`
-  - 控制台产品设计
-- `docs/data-api.md`
-  - 前后端数据模型与 API 设计稿
-- `docs/todo.md`
-  - 当前实现待办
-
-## 快速开始
+Use the published local agent directly with `npx`:
 
 ```bash
-pnpm go
-```
-
-如果你只想先做环境体检：
-
-```bash
-pnpm ok
-```
-
-如果你想直接本地运行：
-
-```bash
-pnpm dev
-```
-
-`pnpm go` 会进入数字菜单，你可以直接输入编号：
-
-- `1` 环境检测
-- `2` 本地运行
-- `3` 执行打包
-
-环境检测时如果缺少依赖，会自动执行安装，不再单独提供“安装依赖”或“全部执行”入口。
-
-旧的 `pnpm bootstrap` 也还保留着，但现在更推荐 `pnpm go / pnpm ok / pnpm dev`。
-
-启动控制面：
-
-```bash
-pnpm dev:api
-```
-
-启动 Web 控制面板：
-
-```bash
-pnpm dev:web
-```
-
-手动启动本地 agent：
-
-```bash
-pnpm --filter ./packages/agent exec mcp-hub \
+npx -y @a1ua/mcp-hub \
   --base-url https://your-control-plane.example.com \
   --workspace mcp-hub \
   --token your-token
 ```
 
-按 Codex 官方习惯接入，优先使用本地 `stdio` agent：
+Or install it globally:
 
 ```bash
-codex mcp add mcp-hub -- npx -y @a1ua/mcp-hub --base-url https://your-control-plane.example.com --workspace mcp-hub --token your-token
+npm install -g @a1ua/mcp-hub
 ```
 
-对应的 `~/.codex/config.toml` 可写成：
+## Client Setup
+
+### Codex
+
+```bash
+codex mcp add mcp-hub -- \
+  npx -y @a1ua/mcp-hub \
+  --base-url https://your-control-plane.example.com \
+  --workspace mcp-hub \
+  --token your-token
+```
+
+You can also write the server configuration directly:
 
 ```toml
 [mcp_servers."mcp-hub"]
@@ -127,49 +76,109 @@ command = "/bin/sh"
 args = ["-lc", "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; if [ -d \"$HOME/.nvm/versions/node\" ]; then for dir in \"$HOME\"/.nvm/versions/node/*/bin; do [ -d \"$dir\" ] && PATH=\"$dir:$PATH\"; done; fi; exec 'npx' '-y' '@a1ua/mcp-hub' '--base-url' 'https://your-control-plane.example.com' '--workspace' 'mcp-hub' '--token' 'your-token'"]
 ```
 
-如果后续要发布成 npm 包，推荐优先使用这两种接入方式：
+### Config URL Mode
+
+Use `--config-url` when the control plane gives you a full workspace or export config endpoint:
 
 ```bash
-npx -y @a1ua/mcp-hub --base-url https://your-control-plane.example.com --workspace mcp-hub --token your-token
+npx -y @a1ua/mcp-hub \
+  --config-url https://your-control-plane.example.com/v1/workspaces/mcp-hub/config \
+  --workspace mcp-hub \
+  --token your-token
 ```
+
+## CLI Options
+
+| Option | Description |
+| --- | --- |
+| `--base-url` | Control-plane base URL. The agent resolves `/v1/workspaces/<workspace>/config`. |
+| `--config-url` | Full configuration URL. Takes precedence over `--base-url`. |
+| `--workspace` | Workspace ID and local cache key. |
+| `--token` | Bearer token passed directly on the command line. |
+| `--token-env` | Environment variable name used to read the Bearer token. |
+| `--cache-dir` | Custom local cache directory. |
+
+The same settings can also be supplied through environment variables:
+
+- `MCP_AGENT_BASE_URL`
+- `MCP_AGENT_CONFIG_URL`
+- `MCP_AGENT_WORKSPACE`
+- `MCP_AGENT_TOKEN`
+- `MCP_AGENT_TOKEN_ENV`
+- `MCP_AGENT_CACHE_DIR`
+
+## Project Structure
+
+```text
+.
+├── apps
+│   ├── control-plane-api     # Fastify API and hosted-source runtime management
+│   └── control-plane-web     # React control-plane console
+├── packages
+│   ├── agent                 # Published local stdio agent
+│   ├── runtime               # MCP aggregation runtime
+│   └── shared                # Shared schemas and config mapping
+└── docs                      # Architecture and product notes
+```
+
+## Development
+
+Install dependencies:
 
 ```bash
-npx -y @a1ua/mcp-hub --config-url https://your-control-plane.example.com/v1/workspaces/mcp-hub/config --workspace mcp-hub --token your-token
+pnpm install
 ```
 
-这里的 `base-url` 指“控制面 API 的根地址”，不是某个 MCP 服务地址。
+Run the development helper:
 
-例如：
+```bash
+pnpm go
+```
 
-- `--base-url https://your-control-plane.example.com`
-- `--workspace mcp-hub`
+Run API and web console separately:
 
-agent 最终会请求：
+```bash
+pnpm dev:api
+pnpm dev:web
+```
 
-- `https://your-control-plane.example.com/v1/workspaces/mcp-hub/config`
+Run checks:
 
-## 当前已有能力
+```bash
+pnpm -r test
+pnpm build
+```
 
-- 本地 npm agent
-- 远程控制面 API
-- 自用控制台原型
-- 四类上游来源：
-  - `direct-http`
-  - `local-stdio`
-  - `hosted-npm`
-  - `hosted-single-file`
-- 托管型来源的基础接入能力
-- runtime 侧的聚合与统一暴露基础能力
+## Control-Plane Contract
 
-## 当前待补能力
+The local agent expects a workspace config endpoint that returns a JSON workspace configuration.
 
-- `Sources / Tools / Hosted` 三层控制面的完整收口
-- 更完善的自动化测试覆盖
-- hosted 来源的更稳定状态管理与日志体验
-- 最终工具暴露视图与冲突处理体验
+With `--base-url https://your-control-plane.example.com --workspace mcp-hub`, the agent requests:
 
-## 首版验收
+```text
+https://your-control-plane.example.com/v1/workspaces/mcp-hub/config
+```
 
-- 正常路径：本地 agent 能拉到远程配置，并向下游工具列出聚合后的工具
-- 控制面路径：能维护来源、刷新能力、控制工具暴露、启动或停止托管来源
-- 边界路径：远程配置接口不可用时，agent 能从缓存恢复，或给出明确错误
+With export profiles, the control plane can provide separate config URLs for different MCP server views.
+
+## Current Scope
+
+`mcp-hub` focuses on local MCP aggregation and configuration delivery. It is not intended to be a multi-tenant SaaS backend out of the box.
+
+The current implementation is best suited for:
+
+- personal MCP workspaces,
+- small team tool setups,
+- self-hosted control planes,
+- experiments with hosted or generated MCP sources.
+
+## Roadmap
+
+- Improve the public setup wizard and install documentation.
+- Expand hosted-source lifecycle management.
+- Add more automated coverage around source discovery and export profiles.
+- Refine the web console for clearer source, tool, and export workflows.
+
+## License
+
+MIT

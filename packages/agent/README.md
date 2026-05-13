@@ -1,40 +1,39 @@
 # mcp-hub agent
 
-一个面向 AI 编码工具的本地 MCP agent。
+Local `stdio` MCP agent for `mcp-hub`.
 
-它通过 `stdio` 暴露给 Codex / Claude Code / OpenCode，同时从远程控制面拉取个性化配置，并在本地直连上游 MCP 服务。
+The agent is designed for AI coding tools such as Codex, Claude Code, and OpenCode. It loads workspace configuration from a control-plane API, connects to upstream MCP services from the local machine, and exposes the aggregated tools through one `stdio` MCP server.
 
-当前发布内容只有本地 npm agent。
+- Package: `@a1ua/mcp-hub`
+- Repository: <https://github.com/aiua-dev/mcp-hub>
+- License: MIT
 
-- 配套源码：<https://github.com/aiua-dev/mcp-hub>
-
-- 已有：
-  - 本地 CLI agent
-  - 仓库内配套的 control-plane API
-  - 仓库内 Web 控制面板原型
-- 还没有：
-  - 完整后台管理系统
-  - 面向生产的权限与审计能力
-
-## 安装
+## Install
 
 ```bash
 npm install -g @a1ua/mcp-hub
 ```
 
-或直接使用：
+Or run it directly:
 
 ```bash
-npx -y @a1ua/mcp-hub --base-url https://your-control-plane.example.com --workspace mcp-hub --token your-token
+npx -y @a1ua/mcp-hub \
+  --base-url https://your-control-plane.example.com \
+  --workspace mcp-hub \
+  --token your-token
 ```
 
-如果是给 Codex 接入，推荐直接使用 Codex 官方支持的 `stdio` 配置：
+## Codex Setup
 
 ```bash
-codex mcp add mcp-hub -- npx -y @a1ua/mcp-hub --base-url https://your-control-plane.example.com --workspace mcp-hub --token your-token
+codex mcp add mcp-hub -- \
+  npx -y @a1ua/mcp-hub \
+  --base-url https://your-control-plane.example.com \
+  --workspace mcp-hub \
+  --token your-token
 ```
 
-或写入 `~/.codex/config.toml`：
+Or add the server manually:
 
 ```toml
 [mcp_servers."mcp-hub"]
@@ -43,37 +42,27 @@ command = "/bin/sh"
 args = ["-lc", "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; if [ -d \"$HOME/.nvm/versions/node\" ]; then for dir in \"$HOME\"/.nvm/versions/node/*/bin; do [ -d \"$dir\" ] && PATH=\"$dir:$PATH\"; done; fi; exec 'npx' '-y' '@a1ua/mcp-hub' '--base-url' 'https://your-control-plane.example.com' '--workspace' 'mcp-hub' '--token' 'your-token'"]
 ```
 
-## 用法
-
-推荐方式一：
+## Config URL Mode
 
 ```bash
-mcp-hub --base-url https://your-control-plane.example.com --workspace mcp-hub --token your-token
+mcp-hub \
+  --config-url https://your-control-plane.example.com/v1/workspaces/mcp-hub/config \
+  --workspace mcp-hub \
+  --token your-token
 ```
 
-推荐方式二：
+## Options
 
-```bash
-mcp-hub --config-url https://your-control-plane.example.com/v1/workspaces/mcp-hub/config --workspace mcp-hub --token your-token
-```
+| Option | Description |
+| --- | --- |
+| `--base-url` | Control-plane base URL. The agent resolves `/v1/workspaces/<workspace>/config`. |
+| `--config-url` | Full configuration URL. Takes precedence over `--base-url`. |
+| `--workspace` | Workspace ID and local cache key. |
+| `--token` | Bearer token passed directly on the command line. |
+| `--token-env` | Environment variable name used to read the Bearer token. |
+| `--cache-dir` | Custom local cache directory. |
 
-## 参数
-
-- `--base-url`
-  - 控制面基础地址，例如 `https://your-control-plane.example.com`
-  - agent 会自动拼成 `https://your-control-plane.example.com/v1/workspaces/<workspace>/config`
-- `--config-url`
-  - 完整配置地址，优先级高于基础地址模式
-- `--workspace`
-  - 工作区 ID，同时作为本地缓存键
-- `--token`
-  - 直接传入 Bearer Token
-- `--token-env`
-  - 从指定环境变量读取 Bearer Token
-- `--cache-dir`
-  - 自定义缓存目录
-
-## 环境变量
+## Environment Variables
 
 - `MCP_AGENT_BASE_URL`
 - `MCP_AGENT_CONFIG_URL`
@@ -82,25 +71,12 @@ mcp-hub --config-url https://your-control-plane.example.com/v1/workspaces/mcp-hu
 - `MCP_AGENT_TOKEN_ENV`
 - `MCP_AGENT_CACHE_DIR`
 
-## 行为说明
+## Behavior
 
-- 远程控制面可用时，优先拉取最新配置并刷新本地缓存
-- 控制面暂时不可用时，会尝试回退到本地缓存
-- agent 本身不承担统一中心中转流量，默认由本地直接连接上游 MCP 服务
-
-## 当前范围
-
-这个 npm 包只解决“本地接入层”。
-
-如果你现在直接拿它来用，需要你自己提供一个控制面配置接口。最小接口只要返回工作区配置 JSON 即可。
-
-如果你使用的是本仓库，建议先在项目根目录执行：
-
-```bash
-pnpm go
-```
-
-这会进入一个数字菜单，你可以按编号执行环境检测、本地运行或打包。
+- Remote config is preferred when the control plane is reachable.
+- The latest successful config is cached locally.
+- If the control plane is temporarily unavailable, the agent attempts to start from cache.
+- Upstream MCP traffic is handled locally by default; the control plane provides configuration, not a mandatory central proxy.
 
 ## License
 
