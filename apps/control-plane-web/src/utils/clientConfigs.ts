@@ -104,6 +104,7 @@ function buildShellWrappedAgentArgs(agentArgs: string[]): string[] {
   const script = [
     'PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"',
     'if [ -d "$HOME/.nvm/versions/node" ]; then for dir in "$HOME"/.nvm/versions/node/*/bin; do [ -d "$dir" ] && PATH="$dir:$PATH"; done; fi',
+    'cd "$HOME"',
     `exec ${command}`,
   ].join("; ");
 

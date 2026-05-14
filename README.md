@@ -73,7 +73,7 @@ You can also write the server configuration directly:
 [mcp_servers."mcp-hub"]
 type = "stdio"
 command = "/bin/sh"
-args = ["-lc", "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; if [ -d \"$HOME/.nvm/versions/node\" ]; then for dir in \"$HOME\"/.nvm/versions/node/*/bin; do [ -d \"$dir\" ] && PATH=\"$dir:$PATH\"; done; fi; exec 'npx' '-y' '@a1ua/mcp-hub' '--base-url' 'https://your-control-plane.example.com' '--workspace' 'mcp-hub' '--token' 'your-token'"]
+args = ["-lc", "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; if [ -d \"$HOME/.nvm/versions/node\" ]; then for dir in \"$HOME\"/.nvm/versions/node/*/bin; do [ -d \"$dir\" ] && PATH=\"$dir:$PATH\"; done; fi; cd \"$HOME\"; exec 'npx' '-y' '@a1ua/mcp-hub' '--base-url' 'https://your-control-plane.example.com' '--workspace' 'mcp-hub' '--token' 'your-token'"]
 ```
 
 ### Config URL Mode
