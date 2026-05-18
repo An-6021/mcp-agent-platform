@@ -21,7 +21,12 @@ import {
   type ClientConfigVariantId,
 } from "../utils/clientConfigs";
 import { formatRelativeTime, formatSourceKindLabel, formatSourceStatusLabel } from "../utils/labels";
-import { buildHostedSingleFileCandidate, parseImportedSources, type ImportedSourceCandidate } from "../utils/sourceImports";
+import {
+  buildHostedSingleFileCandidate,
+  parseImportedSources,
+  type ImportedSourceCandidate,
+  type SourceImportFormat,
+} from "../utils/sourceImports";
 
 // ── 状态映射 ────────────────────────────────────────────────────────
 
@@ -143,6 +148,34 @@ function describeImportedCandidate(candidate: ImportedSourceCandidate): string {
   return `${candidate.config.fileName} · ${candidate.config.runtime}`;
 }
 
+const IMPORT_FORMAT_OPTIONS: Array<{ id: SourceImportFormat; label: string }> = [
+  { id: "auto", label: "自动" },
+  { id: "json", label: "JSON" },
+  { id: "toml", label: "TOML" },
+];
+
+const IMPORT_PLACEHOLDERS: Record<SourceImportFormat, string> = {
+  auto: `{"mcpServers":{"firecrawl":{"command":"npx","args":["-y","firecrawl-mcp"],"env":{"FIRECRAWL_API_KEY":"..."}}}}\n\n[mcp_servers.firecrawl]\ntype = "stdio"\ncommand = "npx"\nargs = ["-y", "firecrawl-mcp"]\n\nhttps://example.com/mcp\n\nnpx -y @scope/server`,
+  json: `{
+  "mcpServers": {
+    "firecrawl": {
+      "command": "npx",
+      "args": ["-y", "firecrawl-mcp"],
+      "env": {
+        "FIRECRAWL_API_KEY": "..."
+      }
+    }
+  }
+}`,
+  toml: `[mcp_servers.firecrawl]
+type = "stdio"
+command = "npx"
+args = ["-y", "firecrawl-mcp"]
+
+[mcp_servers.firecrawl.env]
+FIRECRAWL_API_KEY = "..."`,
+};
+
 function formatSnapshotError(error: Error): string {
   const message = error.message.toLowerCase();
   if (message.includes("non-200 status code (400)") || message.includes("unexpected content type")) {
@@ -154,6 +187,26 @@ function formatSnapshotError(error: Error): string {
   }
 
   return "暂时拿不到能力快照，请稍后再试。";
+}
+
+function formatImportEmptyMessage(format: SourceImportFormat): string {
+  if (format === "json") {
+    return "没有识别到可用 JSON 配置。";
+  }
+  if (format === "toml") {
+    return "没有识别到可用 TOML 配置。";
+  }
+  return "未识别到可用来源，请粘贴地址、命令、配置或脚本。";
+}
+
+function formatImportParseError(format: SourceImportFormat, error: Error): string {
+  if (format === "json") {
+    return "JSON 格式不对，请检查括号、逗号和引号。";
+  }
+  if (format === "toml") {
+    return "TOML 格式不对，请检查表头、数组和引号。";
+  }
+  return error.message || "配置解析失败";
 }
 
 function buildSourceIdFromName(name: string, fallback: string): string {
@@ -245,6 +298,33 @@ function ClientConfigQuickActions({ workspaceId }: { workspaceId: string | null 
         onCopy={(variantId) => void copyContent("json", variantId)}
       />
     </>
+  );
+}
+
+function ImportFormatPicker({
+  value,
+  onChange,
+}: {
+  value: SourceImportFormat;
+  onChange: (value: SourceImportFormat) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-[#d9d9d9] bg-white p-0.5">
+      {IMPORT_FORMAT_OPTIONS.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          onClick={() => onChange(option.id)}
+          className={`rounded px-2.5 py-1 text-[12px] font-medium transition ${
+            value === option.id
+              ? "bg-[#111] text-white"
+              : "text-[#666] hover:bg-[#f3f3f3] hover:text-[#111]"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -398,6 +478,7 @@ function SourceDialog({ mode, sourceId, onClose, onSaved }: SourceDialogProps) {
   const [kind, setKind] = useState<SourceKind>("remote-http");
   const [draftConfig, setDraftConfig] = useState<SourceConfig>(() => createDefaultSourceConfig("remote-http"));
   const [importText, setImportText] = useState("");
+  const [importFormat, setImportFormat] = useState<SourceImportFormat>("auto");
   const [detectedImport, setDetectedImport] = useState<ImportedSourceCandidate | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [seedDiscoveryText, setSeedDiscoveryText] = useState("");
@@ -602,7 +683,12 @@ main().catch(console.error);`;
     }
   }
 
-  function handleImportInputChange(value: string) {
+  function handleImportFormatChange(value: SourceImportFormat) {
+    setImportFormat(value);
+    handleImportInputChange(importText, value);
+  }
+
+  function handleImportInputChange(value: string, format = importFormat) {
     setImportText(value);
     if (!value.trim()) {
       setDetectedImport(null);
@@ -617,10 +703,10 @@ main().catch(console.error);`;
     }
 
     try {
-      const candidate = parseImportedSources(value)[0] ?? null;
+      const candidate = parseImportedSources(value, format)[0] ?? null;
       if (!candidate) {
         setDetectedImport(null);
-        setImportError("未识别到可用来源，请粘贴地址、命令、配置或脚本。");
+        setImportError(formatImportEmptyMessage(format));
         if (!isEdit) {
           setId("");
           setName("");
@@ -639,7 +725,7 @@ main().catch(console.error);`;
       }
     } catch (error) {
       setDetectedImport(null);
-      setImportError((error as Error).message || "配置解析失败");
+      setImportError(formatImportParseError(format, error as Error));
       if (!isEdit) {
         setId("");
         setName("");
@@ -741,30 +827,33 @@ main().catch(console.error);`;
         <h2 className="text-[15px] font-semibold text-[#111]">{isEdit ? "编辑来源" : "新增来源"}</h2>
 
         {!isEdit ? (
-          <div className="rounded-lg border border-[#eaeaea] bg-[#fafafa] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-[#111]">粘贴配置或脚本</p>
-              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-[#d9d9d9] bg-white px-3 py-1.5 text-[12px] font-medium text-[#333] transition hover:border-[#111] hover:text-[#111]">
-                <UploadIcon className="h-3.5 w-3.5" />
-                上传脚本
-                <input
-                  type="file"
-                  accept=".ts,.tsx,.mts,.js,.mjs,.cjs,.py,.sh"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleFileUpload(file);
-                  }}
-                />
-              </label>
-            </div>
+            <div className="rounded-lg border border-[#eaeaea] bg-[#fafafa] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#111]">粘贴配置或脚本</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <ImportFormatPicker value={importFormat} onChange={handleImportFormatChange} />
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-[#d9d9d9] bg-white px-3 py-1.5 text-[12px] font-medium text-[#333] transition hover:border-[#111] hover:text-[#111]">
+                    <UploadIcon className="h-3.5 w-3.5" />
+                    上传脚本
+                    <input
+                      type="file"
+                      accept=".ts,.tsx,.mts,.js,.mjs,.cjs,.py,.sh"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file);
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
 
-            <textarea
-              value={importText}
-              onChange={(e) => handleImportInputChange(e.target.value)}
-              className="field-textarea mt-3 min-h-[176px] font-mono text-xs"
-              placeholder={`{"idea":{"url":"http://127.0.0.1:64342/stream"}}\n\nhttps://example.com/mcp\n\nnpx -y @scope/server\n\n[mcp_servers.demo]\nurl = "https://example.com/mcp"\n\n\`\`\`ts\nimport { Server } from "@modelcontextprotocol/sdk/server/index.js"\n\`\`\``}
-            />
+              <textarea
+                value={importText}
+                onChange={(e) => handleImportInputChange(e.target.value)}
+                className="field-textarea mt-3 min-h-[176px] font-mono text-xs"
+                placeholder={IMPORT_PLACEHOLDERS[importFormat]}
+              />
 
             {detectedImport ? (
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -795,11 +884,14 @@ main().catch(console.error);`;
           <>
             <details className="rounded-lg border border-[#eaeaea] bg-[#fafafa] px-4 py-3">
               <summary className="cursor-pointer list-none text-sm font-medium text-[#444]">粘贴 MCP 配置</summary>
+              <div className="mt-3 flex justify-end">
+                <ImportFormatPicker value={importFormat} onChange={handleImportFormatChange} />
+              </div>
               <textarea
                 value={importText}
                 onChange={(e) => handleImportInputChange(e.target.value)}
                 className="field-textarea mt-3 min-h-[128px] font-mono text-xs"
-                placeholder={`{"mcpServers":{"firecrawl":{"command":"npx","args":["-y","firecrawl-mcp"],"env":{"FIRECRAWL_API_KEY":"..."}}}}\n\n[mcp_servers.firecrawl]\ntype = "stdio"\ncommand = "npx"\nargs = ["-y", "firecrawl-mcp"]`}
+                placeholder={IMPORT_PLACEHOLDERS[importFormat]}
               />
               {detectedImport ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2">

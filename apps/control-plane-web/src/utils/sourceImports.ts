@@ -13,6 +13,8 @@ export type ImportedSourceCandidate = {
   seedDiscovery?: ImportedSourceDiscovery;
 };
 
+export type SourceImportFormat = "auto" | "json" | "toml";
+
 type ParsedTomlServerMap = Record<string, Record<string, unknown>>;
 
 const SERVER_ROOT_KEYS = new Set(["mcpServers", "mcp_servers", "servers"]);
@@ -34,10 +36,18 @@ const DEFAULT_FILE_NAME_BY_RUNTIME = {
   bash: "server.sh",
 } satisfies Record<"node" | "tsx" | "python" | "bash", string>;
 
-export function parseImportedSources(raw: string): ImportedSourceCandidate[] {
+export function parseImportedSources(raw: string, format: SourceImportFormat = "auto"): ImportedSourceCandidate[] {
   const text = raw.trim();
   if (!text) {
     return [];
+  }
+
+  if (format === "json") {
+    return parseJsonSources(text);
+  }
+
+  if (format === "toml") {
+    return parseTomlSources(text);
   }
 
   if (looksLikeJson(text)) {
