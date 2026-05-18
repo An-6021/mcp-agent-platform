@@ -26,8 +26,11 @@ type ExportClientConfigOptions = {
 };
 
 const LOCAL_WEB_PORT = "5173";
-const LOCAL_API_BASE_URL = import.meta.env.VITE_LOCAL_API_BASE_URL ?? "http://127.0.0.1:3100";
-const PUBLIC_CONTROL_PLANE_BASE_URL = __MCP_AGENT_PUBLIC_CONTROL_PLANE_BASE_URL__.trim();
+const VITE_ENV = import.meta.env ?? {};
+const LOCAL_API_BASE_URL = VITE_ENV.VITE_LOCAL_API_BASE_URL ?? "http://127.0.0.1:3100";
+const PUBLIC_CONTROL_PLANE_BASE_URL = (typeof __MCP_AGENT_PUBLIC_CONTROL_PLANE_BASE_URL__ === "string"
+  ? __MCP_AGENT_PUBLIC_CONTROL_PLANE_BASE_URL__
+  : "").trim();
 const CLIENT_NPX_COMMAND = "npx";
 const CLIENT_SHELL_COMMAND = "/bin/sh";
 export const DEFAULT_CLIENT_CONFIG_VARIANT: ClientConfigVariantId = "npx";
@@ -55,7 +58,7 @@ export function getControlPlaneBaseUrl(origin = window.location.origin): string 
   try {
     const current = new URL(origin);
     const isLocalHost = current.hostname === "127.0.0.1" || current.hostname === "localhost";
-    if (import.meta.env.DEV && isLocalHost) {
+    if (VITE_ENV.DEV && isLocalHost) {
       return LOCAL_API_BASE_URL;
     }
     if (isLocalHost && current.port === LOCAL_WEB_PORT) {

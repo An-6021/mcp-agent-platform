@@ -41,7 +41,14 @@ export function parseImportedSources(raw: string): ImportedSourceCandidate[] {
   }
 
   if (looksLikeJson(text)) {
-    return parseJsonSources(text);
+    try {
+      const jsonSources = parseJsonSources(text);
+      if (jsonSources.length > 0) {
+        return jsonSources;
+      }
+    } catch {
+      // TOML server sections also start with "[", so keep falling through.
+    }
   }
 
   const tomlSources = parseTomlSources(text);
@@ -201,7 +208,7 @@ function fromSourceRecord(value: Record<string, unknown>, fallbackId: string): I
 }
 
 function resolveCandidateKind(value: Record<string, unknown>): SourceKind | null {
-  const explicitKind = normalizeSourceKind(value.kind);
+  const explicitKind = normalizeSourceKind(value.kind ?? value.type ?? value.transport);
   if (explicitKind) {
     return explicitKind;
   }
@@ -230,6 +237,9 @@ function normalizeSourceKind(kind: unknown): SourceKind | null {
   switch (kind) {
     case "remote-http":
     case "direct-http":
+    case "http":
+    case "streamable-http":
+    case "sse":
       return "remote-http";
     case "local-stdio":
     case "stdio":
@@ -609,7 +619,7 @@ function parseTomlServerMap(text: string): ParsedTomlServerMap {
   let currentServerId: string | null = null;
   let currentSection: "root" | "headers" | "env" = "root";
 
-  for (const rawLine of text.split(/\r?\n/)) {
+  for (const rawLine of toTomlLogicalLines(text)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) {
       continue;
@@ -647,6 +657,66 @@ function parseTomlServerMap(text: string): ParsedTomlServerMap {
   }
 
   return serverMap;
+}
+
+function toTomlLogicalLines(text: string): string[] {
+  const lines: string[] = [];
+  let current = "";
+  let depth = 0;
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    current = current ? `${current} ${line}` : line;
+    depth += getTomlCollectionDepthDelta(line);
+    if (depth <= 0) {
+      lines.push(current);
+      current = "";
+      depth = 0;
+    }
+  }
+
+  if (current) {
+    lines.push(current);
+  }
+
+  return lines;
+}
+
+function getTomlCollectionDepthDelta(value: string): number {
+  let delta = 0;
+  let quote: "'" | "\"" | null = null;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (!char) {
+      continue;
+    }
+
+    if (quote) {
+      if (char === quote && value[index - 1] !== "\\") {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === "[" || char === "{") {
+      delta += 1;
+    }
+    if (char === "]" || char === "}") {
+      delta -= 1;
+    }
+  }
+
+  return delta;
 }
 
 function parseTomlHeader(line: string): { serverId: string; section: "root" | "headers" | "env" } | null {

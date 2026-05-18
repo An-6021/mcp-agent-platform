@@ -73,6 +73,42 @@ function parseCommandText(value: string): string[] {
   return matches.map((item) => item.replace(/^['"]|['"]$/g, "").trim()).filter(Boolean);
 }
 
+function serializeRecord(value: Record<string, string> | undefined): string {
+  return Object.entries(value ?? {})
+    .map(([key, current]) => `${key}=${current}`)
+    .join("\n");
+}
+
+function parseRecordDraft(value: string): Record<string, string> {
+  const next: Record<string, string> = {};
+
+  for (const rawLine of value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) {
+      throw new Error("每行请写成 KEY=VALUE");
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    const current = line.slice(separatorIndex + 1).trim();
+    if (!key || !current) {
+      throw new Error("每行请写成 KEY=VALUE");
+    }
+
+    next[key] = current;
+  }
+
+  return next;
+}
+
+function normalizeTimeout(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : 30_000;
+}
+
 // ── 运行时自动识别 ──────────────────────────────────────────────────
 
 const EXTENSION_RUNTIME_MAP: Record<string, HostedSingleFileDraftConfig["runtime"]> = {
@@ -212,6 +248,140 @@ function ClientConfigQuickActions({ workspaceId }: { workspaceId: string | null 
   );
 }
 
+function CommandDraftField({
+  label,
+  value,
+  placeholder,
+  onCommit,
+}: {
+  label: string;
+  value: string[] | undefined;
+  placeholder: string;
+  onCommit: (value: string[]) => void;
+}) {
+  const serialized = formatCommandText(value);
+  const [draft, setDraft] = useState(serialized);
+
+  useEffect(() => {
+    setDraft(serialized);
+  }, [serialized]);
+
+  return (
+    <label className="block">
+      <span className="field-label">{label}</span>
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => onCommit(parseCommandText(draft))}
+        className="field-input font-mono text-xs sm:text-sm"
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function RecordDraftField({
+  label,
+  value,
+  placeholder,
+  onCommit,
+}: {
+  label: string;
+  value: Record<string, string> | undefined;
+  placeholder: string;
+  onCommit: (value: Record<string, string>) => void;
+}) {
+  const serialized = serializeRecord(value);
+  const [draft, setDraft] = useState(serialized);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(serialized);
+    setError(null);
+  }, [serialized]);
+
+  function commit() {
+    try {
+      onCommit(parseRecordDraft(draft));
+      setError(null);
+    } catch (currentError) {
+      setError((currentError as Error).message || "请输入合法内容");
+    }
+  }
+
+  return (
+    <label className="block">
+      <span className="field-label">{label}</span>
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        className="field-textarea min-h-[96px] font-mono text-xs leading-6"
+        placeholder={placeholder}
+      />
+      {error ? <p className="mt-2 text-xs text-rose-600">{error}</p> : null}
+    </label>
+  );
+}
+
+function ProcessOptionsFields({
+  value,
+  showAutoStart = false,
+  onChange,
+}: {
+  value: {
+    cwd?: string | null;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+    autoStart?: boolean;
+  } | null;
+  showAutoStart?: boolean;
+  onChange: (patch: { cwd?: string | null; env?: Record<string, string>; timeoutMs?: number; autoStart?: boolean }) => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-[#eaeaea] bg-[#fafafa] px-4 py-3">
+      <p className="text-[13px] font-medium text-[#333]">运行参数</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="field-label">工作目录</span>
+          <input
+            value={value?.cwd ?? ""}
+            onChange={(e) => onChange({ cwd: e.target.value.trim() || null })}
+            className="field-input font-mono text-xs sm:text-sm"
+            placeholder="/path/to/project"
+          />
+        </label>
+        <label className="block">
+          <span className="field-label">超时 ms</span>
+          <input
+            type="number"
+            min={1000}
+            value={value?.timeoutMs ?? 30_000}
+            onChange={(e) => onChange({ timeoutMs: normalizeTimeout(Number(e.target.value)) })}
+            className="field-input"
+          />
+        </label>
+      </div>
+      <RecordDraftField
+        label="环境变量"
+        value={value?.env}
+        placeholder={`FIRECRAWL_API_KEY=...\nOPENAI_API_KEY=...`}
+        onCommit={(env) => onChange({ env })}
+      />
+      {showAutoStart ? (
+        <label className="inline-flex items-center gap-2 text-[13px] text-[#555]">
+          <input
+            type="checkbox"
+            checked={value?.autoStart ?? false}
+            onChange={(e) => onChange({ autoStart: e.target.checked })}
+          />
+          自动拉起
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
 // ── 新增来源弹窗 ────────────────────────────────────────────────────
 
 type SourceDialogProps = {
@@ -343,6 +513,7 @@ main().catch(console.error);`;
       const config = draftConfig as LocalStdioDraftConfig;
       const cmdStr = JSON.stringify(config.command?.filter(Boolean).length ? config.command : ["npx", "-y", "@modelcontextprotocol/server-sqlite"]);
       const envStr = JSON.stringify(config.env || {});
+      const cwdStr = JSON.stringify(config.cwd || undefined);
       nodeScript = `import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 async function safeList(run, fallback) {
@@ -360,6 +531,7 @@ async function main() {
   const transport = new StdioClientTransport({
     command: ${cmdStr}[0],
     args: ${cmdStr}.slice(1),
+    cwd: ${cwdStr},
     env: { ...process.env, ...${envStr} },
   });
   const client = new Client({ name: "mcp-snapshot", version: "1.0.0" }, { capabilities: {} });
@@ -414,15 +586,33 @@ main().catch(console.error);`;
     });
   }
 
+  function applyImportedDraftToEdit(candidate: ImportedSourceCandidate) {
+    if (candidate.kind !== kind) {
+      setDetectedImport(null);
+      setImportError(`这份配置是 ${formatSourceKindLabel(candidate.kind)}，当前来源是 ${formatSourceKindLabel(kind)}。要换类型请新建来源。`);
+      return;
+    }
+
+    setDetectedImport(candidate);
+    setImportError(null);
+    setName(candidate.name || name);
+    setDraftConfig(candidate.config);
+    if (candidate.seedDiscovery) {
+      setSeedDiscoveryText(JSON.stringify(candidate.seedDiscovery, null, 2));
+    }
+  }
+
   function handleImportInputChange(value: string) {
     setImportText(value);
     if (!value.trim()) {
       setDetectedImport(null);
       setImportError(null);
-      setId("");
-      setName("");
-      setKind("remote-http");
-      setDraftConfig(createDefaultSourceConfig("remote-http"));
+      if (!isEdit) {
+        setId("");
+        setName("");
+        setKind("remote-http");
+        setDraftConfig(createDefaultSourceConfig("remote-http"));
+      }
       return;
     }
 
@@ -431,23 +621,31 @@ main().catch(console.error);`;
       if (!candidate) {
         setDetectedImport(null);
         setImportError("未识别到可用来源，请粘贴地址、命令、配置或脚本。");
+        if (!isEdit) {
+          setId("");
+          setName("");
+          setKind("remote-http");
+          setDraftConfig(createDefaultSourceConfig("remote-http"));
+        }
+        return;
+      }
+
+      if (isEdit) {
+        applyImportedDraftToEdit(candidate);
+      } else {
+        setDetectedImport(candidate);
+        setImportError(null);
+        applyImportedDraft(candidate);
+      }
+    } catch (error) {
+      setDetectedImport(null);
+      setImportError((error as Error).message || "配置解析失败");
+      if (!isEdit) {
         setId("");
         setName("");
         setKind("remote-http");
         setDraftConfig(createDefaultSourceConfig("remote-http"));
-        return;
       }
-
-      setDetectedImport(candidate);
-      setImportError(null);
-      applyImportedDraft(candidate);
-    } catch (error) {
-      setDetectedImport(null);
-      setImportError((error as Error).message || "配置解析失败");
-      setId("");
-      setName("");
-      setKind("remote-http");
-      setDraftConfig(createDefaultSourceConfig("remote-http"));
     }
   }
 
@@ -595,6 +793,23 @@ main().catch(console.error);`;
           </div>
         ) : (
           <>
+            <details className="rounded-lg border border-[#eaeaea] bg-[#fafafa] px-4 py-3">
+              <summary className="cursor-pointer list-none text-sm font-medium text-[#444]">粘贴 MCP 配置</summary>
+              <textarea
+                value={importText}
+                onChange={(e) => handleImportInputChange(e.target.value)}
+                className="field-textarea mt-3 min-h-[128px] font-mono text-xs"
+                placeholder={`{"mcpServers":{"firecrawl":{"command":"npx","args":["-y","firecrawl-mcp"],"env":{"FIRECRAWL_API_KEY":"..."}}}}\n\n[mcp_servers.firecrawl]\ntype = "stdio"\ncommand = "npx"\nargs = ["-y", "firecrawl-mcp"]`}
+              />
+              {detectedImport ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <StatusBadge tone={kindTone(detectedImport.kind)}>{formatSourceKindLabel(detectedImport.kind)}</StatusBadge>
+                  <span className="text-[12px] text-[#666]">{describeImportedCandidate(detectedImport)}</span>
+                </div>
+              ) : null}
+              {importError ? <p className="mt-3 text-[13px] text-[#e00]">{importError}</p> : null}
+            </details>
+
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
               <label className="block">
                 <span className="field-label">名称</span>
@@ -615,53 +830,118 @@ main().catch(console.error);`;
             </div>
 
             {kind === "remote-http" ? (
-              <label className="block">
-                <span className="field-label">地址</span>
-                <input
-                  value={remoteConfig?.endpoint ?? ""}
-                  onChange={(e) => setDraftConfig((current) => ({ ...(current as RemoteHttpDraftConfig), endpoint: e.target.value }))}
-                  className="field-input"
-                  placeholder="https://..."
-                  required
-                />
-              </label>
+              <div className="space-y-3">
+                <label className="block">
+                  <span className="field-label">地址</span>
+                  <input
+                    value={remoteConfig?.endpoint ?? ""}
+                    onChange={(e) => setDraftConfig((current) => ({ ...(current as RemoteHttpDraftConfig), endpoint: e.target.value }))}
+                    className="field-input"
+                    placeholder="https://..."
+                    required
+                  />
+                </label>
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
+                  <RecordDraftField
+                    label="请求头"
+                    value={remoteConfig?.headers}
+                    placeholder={`Authorization=Bearer ...\nX-Workspace=demo`}
+                    onCommit={(headers) => setDraftConfig((current) => ({ ...(current as RemoteHttpDraftConfig), headers }))}
+                  />
+                  <label className="block">
+                    <span className="field-label">超时 ms</span>
+                    <input
+                      type="number"
+                      min={1000}
+                      value={remoteConfig?.timeoutMs ?? 30_000}
+                      onChange={(e) => setDraftConfig((current) => ({ ...(current as RemoteHttpDraftConfig), timeoutMs: normalizeTimeout(Number(e.target.value)) }))}
+                      className="field-input"
+                    />
+                  </label>
+                </div>
+              </div>
             ) : null}
 
             {kind === "local-stdio" ? (
-              <label className="block">
-                <span className="field-label">启动命令</span>
-                <input
-                  value={formatCommandText(stdioConfig?.command)}
-                  onChange={(e) => setDraftConfig((current) => ({ ...(current as LocalStdioDraftConfig), command: parseCommandText(e.target.value) }))}
-                  className="field-input"
-                  placeholder="npx -y @mcp/server"
-                  required
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                  <label className="block">
+                    <span className="field-label">命令</span>
+                    <input
+                      value={stdioConfig?.command?.[0] ?? ""}
+                      onChange={(e) => setDraftConfig((current) => {
+                        const currentConfig = current as LocalStdioDraftConfig;
+                        return { ...currentConfig, command: [e.target.value.trim(), ...(currentConfig.command ?? []).slice(1)].filter(Boolean) };
+                      })}
+                      className="field-input font-mono text-xs sm:text-sm"
+                      placeholder="npx"
+                      required
+                    />
+                  </label>
+                  <CommandDraftField
+                    label="参数"
+                    value={stdioConfig?.command?.slice(1)}
+                    placeholder="-y firecrawl-mcp"
+                    onCommit={(args) => setDraftConfig((current) => {
+                      const currentConfig = current as LocalStdioDraftConfig;
+                      const executable = currentConfig.command?.[0] ?? "";
+                      return { ...currentConfig, command: [executable, ...args].filter(Boolean) };
+                    })}
+                  />
+                </div>
+                <ProcessOptionsFields
+                  value={stdioConfig}
+                  onChange={(patch) => setDraftConfig((current) => ({ ...(current as LocalStdioDraftConfig), ...patch }))}
                 />
-              </label>
+              </div>
             ) : null}
 
             {kind === "hosted-npm" ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className="field-label">包名</span>
-                  <input
-                    value={hostedNpmConfig?.packageName ?? ""}
-                    onChange={(e) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), packageName: e.target.value }))}
-                    className="field-input"
-                    placeholder="@scope/package"
-                    required
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="field-label">包名</span>
+                    <input
+                      value={hostedNpmConfig?.packageName ?? ""}
+                      onChange={(e) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), packageName: e.target.value }))}
+                      className="field-input"
+                      placeholder="@scope/package"
+                      required
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="field-label">入口命令</span>
+                    <input
+                      value={hostedNpmConfig?.binName ?? ""}
+                      onChange={(e) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), binName: e.target.value }))}
+                      className="field-input"
+                      placeholder="mcp-server"
+                      required
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                  <label className="block">
+                    <span className="field-label">版本</span>
+                    <input
+                      value={hostedNpmConfig?.packageVersion ?? ""}
+                      onChange={(e) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), packageVersion: e.target.value.trim() || undefined }))}
+                      className="field-input font-mono text-xs sm:text-sm"
+                      placeholder="latest / 1.2.3"
+                    />
+                  </label>
+                  <CommandDraftField
+                    label="参数"
+                    value={hostedNpmConfig?.args}
+                    placeholder="--port 3101"
+                    onCommit={(args) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), args }))}
                   />
-                </label>
-                <label className="block">
-                  <span className="field-label">入口命令</span>
-                  <input
-                    value={hostedNpmConfig?.binName ?? ""}
-                    onChange={(e) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), binName: e.target.value }))}
-                    className="field-input"
-                    placeholder="mcp-server"
-                    required
-                  />
-                </label>
+                </div>
+                <ProcessOptionsFields
+                  value={hostedNpmConfig}
+                  showAutoStart
+                  onChange={(patch) => setDraftConfig((current) => ({ ...(current as HostedNpmDraftConfig), ...patch }))}
+                />
               </div>
             ) : null}
 
@@ -716,6 +996,19 @@ main().catch(console.error);`;
                     </p>
                   </div>
                 ) : null}
+
+                <CommandDraftField
+                  label="参数"
+                  value={hostedSingleFileConfig?.args}
+                  placeholder="--mode production"
+                  onCommit={(args) => setDraftConfig((current) => ({ ...(current as HostedSingleFileDraftConfig), args }))}
+                />
+
+                <ProcessOptionsFields
+                  value={hostedSingleFileConfig}
+                  showAutoStart
+                  onChange={(patch) => setDraftConfig((current) => ({ ...(current as HostedSingleFileDraftConfig), ...patch }))}
+                />
               </>
             ) : null}
           </>
