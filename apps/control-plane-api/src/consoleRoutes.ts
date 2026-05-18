@@ -87,7 +87,7 @@ async function buildToolItems(repo: ConsoleRepository): Promise<ToolListItem[]> 
   const exposureMap = new Map(exposures.map((item) => [`${item.sourceId}:${item.originalName}`, item]));
 
   const items: ToolListItem[] = [];
-  for (const source of sources) {
+  for (const source of sources.filter((item) => item.enabled)) {
     const discovery = await repo.getDiscovery(source.id);
     for (const tool of discovery?.tools ?? []) {
       const exposure = exposureMap.get(`${source.id}:${tool.name}`) ?? defaultExposure(source, tool.name);
