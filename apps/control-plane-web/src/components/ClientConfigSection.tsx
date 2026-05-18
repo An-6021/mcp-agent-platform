@@ -1,49 +1,38 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { buildClientConfigSnippets } from "../utils/clientConfigs";
-import { CheckIcon, CopyIcon } from "./AppIcons";
+import {
+  buildClientConfigSnippets,
+  findClientConfigSnippet,
+  type ClientConfigFormat,
+  type ClientConfigVariantId,
+} from "../utils/clientConfigs";
+import { ClientConfigCopyMenu } from "./ClientConfigCopyMenu";
 
 type Props = {
   workspaceId: string;
 };
 
-function CopyButton({
-  title,
-  copied,
-  onClick,
-}: {
-  title: string;
-  copied: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`button-secondary gap-1.5 ${
-        copied
-          ? "!border-emerald-200 !bg-emerald-50 !text-emerald-700"
-          : ""
-      }`}
-    >
-      {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
-      {copied ? "已复制" : title}
-    </button>
-  );
-}
-
 export function ClientConfigSection({ workspaceId }: Props) {
   const queryClient = useQueryClient();
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   const snippets = buildClientConfigSnippets({ workspaceId, token: generatedToken ?? undefined });
 
-  function markCopied(id: string) {
-    setCopiedId(id);
+  function buildCopyKey(format: ClientConfigFormat, variantId: ClientConfigVariantId) {
+    return `${format}:${variantId}`;
+  }
+
+  function getCopiedVariant(format: ClientConfigFormat): ClientConfigVariantId | null {
+    const [copiedFormat, copiedVariant] = copiedKey?.split(":") ?? [];
+    return copiedFormat === format ? (copiedVariant as ClientConfigVariantId) : null;
+  }
+
+  function markCopied(key: string) {
+    setCopiedKey(key);
     window.setTimeout(() => {
-      setCopiedId((current) => (current === id ? null : current));
+      setCopiedKey((current) => (current === key ? null : current));
     }, 1500);
   }
 
@@ -58,24 +47,24 @@ export function ClientConfigSection({ workspaceId }: Props) {
     return created.token;
   }
 
-  async function copyContent(id: string) {
+  async function copyContent(format: ClientConfigFormat, variantId: ClientConfigVariantId) {
     try {
       setCopyError(null);
       const token = await ensureToken();
-      const snippet = buildClientConfigSnippets({ workspaceId, token }).find((item) => item.id === id);
+      const snippet = findClientConfigSnippet(buildClientConfigSnippets({ workspaceId, token }), format, variantId);
       if (!snippet) {
         throw new Error("未找到可复制的配置");
       }
       await navigator.clipboard.writeText(snippet.content);
-      markCopied(id);
+      markCopied(buildCopyKey(format, variantId));
     } catch (error) {
       setCopyError(error instanceof Error ? error.message : "复制失败");
-      setCopiedId(null);
+      setCopiedKey(null);
     }
   }
 
-  const tomlSnippet = snippets.find((snippet) => snippet.id === "toml");
-  const jsonSnippet = snippets.find((snippet) => snippet.id === "json");
+  const tomlSnippet = findClientConfigSnippet(snippets, "toml");
+  const jsonSnippet = findClientConfigSnippet(snippets, "json");
 
   return (
     <section className="surface-card px-4 py-4 sm:px-5">
@@ -87,17 +76,19 @@ export function ClientConfigSection({ workspaceId }: Props) {
 
         <div className="flex flex-wrap gap-2">
           {tomlSnippet ? (
-            <CopyButton
-              title="复制 TOML"
-              copied={copiedId === "toml"}
-              onClick={() => void copyContent("toml")}
+            <ClientConfigCopyMenu
+              format="toml"
+              snippets={snippets}
+              copiedVariantId={getCopiedVariant("toml")}
+              onCopy={(variantId) => void copyContent("toml", variantId)}
             />
           ) : null}
           {jsonSnippet ? (
-            <CopyButton
-              title="复制 JSON"
-              copied={copiedId === "json"}
-              onClick={() => void copyContent("json")}
+            <ClientConfigCopyMenu
+              format="json"
+              snippets={snippets}
+              copiedVariantId={getCopiedVariant("json")}
+              onCopy={(variantId) => void copyContent("json", variantId)}
             />
           ) : null}
         </div>

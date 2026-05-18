@@ -13,7 +13,13 @@ import { api } from "../api/client";
 import { MetricStrip, StatusBadge, type BadgeTone } from "../components/ConsolePrimitives";
 import { CheckIcon, CopyIcon, EditIcon, PlusIcon, RefreshIcon, TrashIcon, ToggleOnIcon, ToggleOffIcon, UploadIcon } from "../components/AppIcons";
 import { ExportProfilesSection } from "../components/ExportProfilesSection";
-import { buildClientConfigSnippets } from "../utils/clientConfigs";
+import { ClientConfigCopyMenu } from "../components/ClientConfigCopyMenu";
+import {
+  buildClientConfigSnippets,
+  findClientConfigSnippet,
+  type ClientConfigFormat,
+  type ClientConfigVariantId,
+} from "../utils/clientConfigs";
 import { formatRelativeTime, formatSourceKindLabel, formatSourceStatusLabel } from "../utils/labels";
 import { buildHostedSingleFileCandidate, parseImportedSources, type ImportedSourceCandidate } from "../utils/sourceImports";
 
@@ -127,11 +133,27 @@ function buildSourceIdFromName(name: string, fallback: string): string {
 
 function ClientConfigQuickActions({ workspaceId }: { workspaceId: string | null }) {
   const queryClient = useQueryClient();
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const snippets = workspaceId ? buildClientConfigSnippets({ workspaceId, token: generatedToken ?? undefined }) : [];
-  const tomlSnippet = snippets.find((snippet) => snippet.id === "toml") ?? null;
-  const jsonSnippet = snippets.find((snippet) => snippet.id === "json") ?? null;
+  const tomlSnippet = findClientConfigSnippet(snippets, "toml") ?? null;
+  const jsonSnippet = findClientConfigSnippet(snippets, "json") ?? null;
+
+  function buildCopyKey(format: ClientConfigFormat, variantId: ClientConfigVariantId) {
+    return `${format}:${variantId}`;
+  }
+
+  function getCopiedVariant(format: ClientConfigFormat): ClientConfigVariantId | null {
+    const [copiedFormat, copiedVariant] = copiedKey?.split(":") ?? [];
+    return copiedFormat === format ? (copiedVariant as ClientConfigVariantId) : null;
+  }
+
+  function markCopied(key: string) {
+    setCopiedKey(key);
+    window.setTimeout(() => {
+      setCopiedKey((current) => (current === key ? null : current));
+    }, 1500);
+  }
 
   async function ensureToken() {
     if (!workspaceId) {
@@ -151,48 +173,41 @@ function ClientConfigQuickActions({ workspaceId }: { workspaceId: string | null 
     return created.token;
   }
 
-  async function copyContent(id: "toml" | "json") {
+  async function copyContent(format: ClientConfigFormat, variantId: ClientConfigVariantId) {
     try {
       if (!workspaceId) {
         return;
       }
 
       const token = await ensureToken();
-      const snippet = buildClientConfigSnippets({ workspaceId, token }).find((item) => item.id === id);
+      const snippet = findClientConfigSnippet(buildClientConfigSnippets({ workspaceId, token }), format, variantId);
       if (!snippet) {
         throw new Error("未找到可复制的配置");
       }
 
       await navigator.clipboard.writeText(snippet.content);
-      setCopiedId(id);
-      window.setTimeout(() => {
-        setCopiedId((current) => (current === id ? null : current));
-      }, 1500);
+      markCopied(buildCopyKey(format, variantId));
     } catch {
-      setCopiedId(null);
+      setCopiedKey(null);
     }
   }
 
   return (
     <>
-      <button
-        type="button"
+      <ClientConfigCopyMenu
+        format="toml"
+        snippets={snippets}
+        copiedVariantId={getCopiedVariant("toml")}
         disabled={!tomlSnippet}
-        onClick={() => { if (tomlSnippet) void copyContent("toml"); }}
-        className={`button-secondary gap-1.5 ${copiedId === "toml" ? "!border-emerald-200 !bg-emerald-50 !text-emerald-700" : ""}`}
-      >
-        {copiedId === "toml" ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
-        {copiedId === "toml" ? "已复制" : "复制 TOML"}
-      </button>
-      <button
-        type="button"
+        onCopy={(variantId) => void copyContent("toml", variantId)}
+      />
+      <ClientConfigCopyMenu
+        format="json"
+        snippets={snippets}
+        copiedVariantId={getCopiedVariant("json")}
         disabled={!jsonSnippet}
-        onClick={() => { if (jsonSnippet) void copyContent("json"); }}
-        className={`button-secondary gap-1.5 ${copiedId === "json" ? "!border-emerald-200 !bg-emerald-50 !text-emerald-700" : ""}`}
-      >
-        {copiedId === "json" ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
-        {copiedId === "json" ? "已复制" : "复制 JSON"}
-      </button>
+        onCopy={(variantId) => void copyContent("json", variantId)}
+      />
     </>
   );
 }

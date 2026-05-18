@@ -3,9 +3,15 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type WorkspaceExportProfile } from "../api/client";
 import type { SourceListItem } from "../api/consoleClient";
-import { CheckIcon, CopyIcon, EditIcon, PlusIcon, TrashIcon } from "./AppIcons";
+import { EditIcon, PlusIcon, TrashIcon } from "./AppIcons";
 import { SectionCard, StatusBadge } from "./ConsolePrimitives";
-import { buildExportClientConfigSnippets } from "../utils/clientConfigs";
+import { ClientConfigCopyMenu } from "./ClientConfigCopyMenu";
+import {
+  buildExportClientConfigSnippets,
+  findClientConfigSnippet,
+  type ClientConfigFormat,
+  type ClientConfigVariantId,
+} from "../utils/clientConfigs";
 import { formatSourceKindLabel } from "../utils/labels";
 
 type Props = {
@@ -30,27 +36,6 @@ function buildServerName(value: string, fallback = "export"): string {
     .replace(/^-+|-+$/g, "");
 
   return sanitized || fallback;
-}
-
-function CopyButton({
-  title,
-  copied,
-  onClick,
-}: {
-  title: string;
-  copied: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`button-secondary gap-1.5 text-[12px] ${copied ? "!border-emerald-200 !bg-emerald-50 !text-emerald-700" : ""}`}
-    >
-      {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
-      {copied ? "已复制" : title}
-    </button>
-  );
 }
 
 function ExportDialog({ workspaceId, sources, initialExport, onClose, onSaved }: ExportDialogProps) {
@@ -282,7 +267,16 @@ export function ExportProfilesSection({ workspaceId, sources }: Props) {
     }, 1500);
   }
 
-  async function copyConfig(profile: WorkspaceExportProfile, format: "toml" | "json") {
+  function buildCopyKey(profileId: string, format: ClientConfigFormat, variantId: ClientConfigVariantId) {
+    return `${profileId}:${format}:${variantId}`;
+  }
+
+  function getCopiedVariant(profileId: string, format: ClientConfigFormat): ClientConfigVariantId | null {
+    const [copiedProfileId, copiedFormat, copiedVariant] = copiedKey?.split(":") ?? [];
+    return copiedProfileId === profileId && copiedFormat === format ? (copiedVariant as ClientConfigVariantId) : null;
+  }
+
+  async function copyConfig(profile: WorkspaceExportProfile, format: ClientConfigFormat, variantId: ClientConfigVariantId) {
     if (!workspaceId) {
       return;
     }
@@ -292,19 +286,20 @@ export function ExportProfilesSection({ workspaceId, sources }: Props) {
       const created = await api.createExportToken(workspaceId, profile.id, {
         label: `${profile.name} Copy ${new Date().toISOString()}`,
       });
-      const snippet = buildExportClientConfigSnippets({
+      const configSnippets = buildExportClientConfigSnippets({
         workspaceId,
         exportId: profile.id,
         serverName: profile.serverName,
         token: created.token,
-      }).find((item) => item.id === format);
+      });
+      const selectedSnippet = findClientConfigSnippet(configSnippets, format, variantId);
 
-      if (!snippet) {
+      if (!selectedSnippet) {
         throw new Error("未找到可复制的配置");
       }
 
-      await navigator.clipboard.writeText(snippet.content);
-      markCopied(`${profile.id}:${format}`);
+      await navigator.clipboard.writeText(selectedSnippet.content);
+      markCopied(buildCopyKey(profile.id, format, variantId));
     } catch (error) {
       setCopiedKey(null);
       setActionError(error instanceof Error ? error.message : "复制失败，请稍后再试。");
@@ -349,6 +344,11 @@ export function ExportProfilesSection({ workspaceId, sources }: Props) {
               .map((sourceId) => sourceMap.get(sourceId))
               .filter((item): item is SourceListItem => Boolean(item));
             const missingSourceCount = profile.enabledSourceIds.length - sourcesForProfile.length;
+            const configSnippets = buildExportClientConfigSnippets({
+              workspaceId,
+              exportId: profile.id,
+              serverName: profile.serverName,
+            });
 
             return (
               <article key={profile.id} className="rounded-2xl border border-[#e6e6e6] bg-white p-4 shadow-sm">
@@ -402,15 +402,19 @@ export function ExportProfilesSection({ workspaceId, sources }: Props) {
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <CopyButton
-                    title="复制 TOML"
-                    copied={copiedKey === `${profile.id}:toml`}
-                    onClick={() => void copyConfig(profile, "toml")}
+                  <ClientConfigCopyMenu
+                    format="toml"
+                    snippets={configSnippets}
+                    copiedVariantId={getCopiedVariant(profile.id, "toml")}
+                    compact
+                    onCopy={(variantId) => void copyConfig(profile, "toml", variantId)}
                   />
-                  <CopyButton
-                    title="复制 JSON"
-                    copied={copiedKey === `${profile.id}:json`}
-                    onClick={() => void copyConfig(profile, "json")}
+                  <ClientConfigCopyMenu
+                    format="json"
+                    snippets={configSnippets}
+                    copiedVariantId={getCopiedVariant(profile.id, "json")}
+                    compact
+                    onCopy={(variantId) => void copyConfig(profile, "json", variantId)}
                   />
                 </div>
               </article>
