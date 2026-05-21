@@ -70,16 +70,8 @@ export function getControlPlaneBaseUrl(origin = window.location.origin): string 
   }
 }
 
-export function getWorkspaceMcpUrl(workspaceId: string, origin = window.location.origin): string {
-  return `${getControlPlaneBaseUrl(origin)}/v1/workspaces/${workspaceId}/mcp`;
-}
-
 export function getWorkspaceConfigUrl(workspaceId: string, origin = window.location.origin): string {
   return `${getControlPlaneBaseUrl(origin)}/v1/workspaces/${workspaceId}/config`;
-}
-
-export function getExportMcpUrl(workspaceId: string, exportId: string, origin = window.location.origin): string {
-  return `${getControlPlaneBaseUrl(origin)}/v1/workspaces/${workspaceId}/exports/${exportId}/mcp`;
 }
 
 export function getExportConfigUrl(workspaceId: string, exportId: string, origin = window.location.origin): string {
